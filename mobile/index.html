@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#1e1e1e" />
+  <title>CC Mobile</title>
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <!-- Top Bar -->
+  <div id="topbar">
+    <button id="menu-btn" aria-label="会话列表">&#9776;</button>
+    <div id="session-info">
+      <span id="session-name">未连接</span>
+      <span id="connection-dot" class="dot-offline"></span>
+    </div>
+    <button id="settings-btn" aria-label="设置">&#9881;</button>
+  </div>
+
+  <!-- Side Drawer Overlay -->
+  <div id="drawer-overlay"></div>
+
+  <!-- Side Drawer -->
+  <div id="drawer">
+    <div id="drawer-header">
+      <h3>会话列表</h3>
+      <button id="drawer-close" aria-label="关闭">&times;</button>
+    </div>
+    <div id="session-list"></div>
+    <div id="drawer-footer">
+      <button id="drawer-refresh">刷新</button>
+      <button id="drawer-new">+ 新建会话</button>
+    </div>
+  </div>
+
+  <!-- Terminal -->
+  <div id="terminal-container"></div>
+
+  <!-- Status Overlay -->
+  <div id="status-overlay" class="hidden">
+    <div id="status-text">连接中...</div>
+    <button id="status-retry" class="hidden">重试</button>
+  </div>
+
+  <!-- Command Panel -->
+  <div id="cmd-panel">
+    <div id="cmd-panel-handle">─</div>
+    <div id="cmd-buttons"></div>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>设置</h3>
+      <label>服务器地址</label>
+      <input type="text" id="setting-host" placeholder="relay.example.com" />
+      <label>用户名</label>
+      <input type="text" id="setting-user" placeholder="用户名" />
+      <label>密码</label>
+      <input type="password" id="setting-pass" placeholder="密码" />
+      <div id="settings-buttons">
+        <button id="settings-save">保存</button>
+        <button id="settings-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- New Session Modal -->
+  <div id="new-session-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>新建会话</h3>
+      <label>会话名称</label>
+      <input type="text" id="new-session-name" placeholder="输入新会话名称" />
+      <p class="help-text">将在笔记本上创建新的 tmux 会话。需要笔记本上有对应的项目目录（会话名称作为项目目录名）。</p>
+      <div id="new-session-buttons">
+        <button id="new-session-create">创建</button>
+        <button id="new-session-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/app.js"></script>
+</body>
+</html>

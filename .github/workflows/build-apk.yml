@@ -1,0 +1,95 @@
+name: Build APK
+
+on:
+  push:
+    branches:
+      - main
+      - test
+    paths:
+      - 'mobile/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-36 build-tools;36.0.0'
+
+      - name: Set default server URL
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            echo "VITE_DEFAULT_HOST=easyai.wuya.asia" >> $GITHUB_ENV
+          else
+            echo "VITE_DEFAULT_HOST=easyaitest.wuya.asia" >> $GITHUB_ENV
+          fi
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: mobile
+
+      - name: Build web frontend
+        run: npm run build
+        working-directory: mobile
+
+      - name: Sync Capacitor
+        run: npx cap sync android
+        working-directory: mobile
+
+      - name: Build APK
+        run: cd android && ./gradlew assembleDebug
+        working-directory: mobile
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cc-mobile-${{ github.ref_name }}
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload to GitHub Release (test rolling)
+        if: github.ref_name == 'test'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-latest
+          name: 'Test Build'
+          body: |
+            Automated test build from `test` branch.
+
+            Commit: ${{ github.sha }}
+            Server: easyaitest.wuya.asia
+          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          prerelease: true
+          make_latest: true
+
+      - name: Upload to GitHub Release (production)
+        if: github.ref_name == 'main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ github.run_number }}
+          name: 'Release v${{ github.run_number }}'
+          body: |
+            Production build from `main` branch.
+
+            Commit: ${{ github.sha }}
+            Server: easyai.wuya.asia
+          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          make_latest: true

@@ -1,0 +1,48 @@
+schema: spec-driven
+
+context: |
+  Tech stack:
+  - WSL (Ubuntu): tmux + Node.js daemon (express, node-pty) + autossh
+  - Public server: Ubuntu + Caddy (reverse proxy, HTTPS)
+  - Mobile: Capacitor + Android WebView + xterm.js
+
+  Architecture:
+  - WSL runs tmux sessions with Claude Code
+  - Node.js daemon (:9528) manages tmux sessions via PTY, exposes HTTP/WS API
+  - autossh creates SSH reverse tunnel (-R) to public server
+  - Caddy on public server reverse-proxies to localhost tunnel port
+  - Mobile app connects via HTTPS/WSS to Caddy, renders xterm.js terminal
+
+  Environments:
+  - Production: port 9528, domain easyai.wuya.asia
+  - Testing: port 9529, domain easyaitest.wuya.asia
+  - Both environments are functionally identical, only port/domain differ
+
+  Git workflow:
+  - All feature work forks from main branch
+  - opsx:propose MUST create a feature branch from main before generating artifacts
+  - Feature branches merge to test branch for validation
+  - test branch push triggers GitHub Actions to build test APK
+  - After testing passes, merge to main for production deployment
+
+  Mobile CI:
+  - Capacitor Android app, built via GitHub Actions
+  - Pushes to test branch trigger automatic APK builds
+  - Test APK uploaded as GitHub Release for direct phone download
+
+  Constraints:
+  - Daemon binds 127.0.0.1 only (never expose directly to network)
+  - Auth via token/Basic Auth
+  - Single user system
+  - No file browsing/editing in mobile app
+
+rules:
+  proposal:
+    - Keep proposals under 500 words
+    - Always include a "Non-goals" section
+    - Check openspec/specs/ for existing specs before writing Capabilities section
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Every requirement MUST have at least one scenario
+  tasks:
+    - Break tasks into chunks of max 2 hours

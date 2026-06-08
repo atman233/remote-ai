@@ -1,0 +1,18 @@
+{
+  "appId": "dev.atman.ccmobile",
+  "appName": "CC Mobile",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "Keyboard": {
+      "resize": "body",
+      "style": "dark"
+    },
+    "StatusBar": {
+      "style": "dark",
+      "backgroundColor": "#1e1e1e"
+    }
+  }
+}
