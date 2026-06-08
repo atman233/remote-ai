@@ -56,7 +56,7 @@ jobs:
         working-directory: mobile
 
       - name: Build APK
-        run: chmod +x ./gradlew && cd android && ./gradlew assembleDebug
+        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug
         working-directory: mobile
 
       - name: Upload APK artifact
