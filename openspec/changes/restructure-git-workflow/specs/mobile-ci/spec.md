@@ -1,7 +1,4 @@
-## Purpose
-Defines the CI/CD pipeline for the Capacitor Android app. Pushes to any branch with mobile/ changes trigger automatic APK builds via GitHub Actions. Non-main branches build with test server config, main builds with production config and uploads to GitHub Releases.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: GitHub Actions builds Android APK on any branch push
 A push to any branch with changes to the `mobile/` directory SHALL trigger a GitHub Actions workflow that builds the Capacitor Android APK.
@@ -20,6 +17,14 @@ A push to any branch with changes to the `mobile/` directory SHALL trigger a Git
 - **GIVEN** a push to `main` includes changes to `mobile/`
 - **WHEN** GitHub Actions receives the push event
 - **THEN** it builds the APK with production server configuration (`easyai.wuya.asia`) and uploads it as a GitHub Release
+
+## REMOVED Requirements
+
+### Requirement: Test APK is uploaded as GitHub Release
+**Reason**: Only main branch builds create GitHub Releases. Feature/fix branch builds upload to GitHub Actions artifacts only.
+**Migration**: Download test APKs from the Actions run artifacts page instead of the Releases page.
+
+## ADDED Requirements
 
 ### Requirement: Non-main branch builds use test server configuration
 Any APK built from a branch other than `main` SHALL be configured to connect to the testing server (`easyaitest.wuya.asia`) by default.
