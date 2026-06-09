@@ -1,7 +1,4 @@
-## Purpose
-Defines the git branching strategy: all feature/fix work forks from main, branches are named feature-<topic> or fix-<topic>, pushes trigger CI directly on the branch, and /opsx:archive merges to main for production deployment.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Feature branches fork from main
 All new feature development SHALL start by forking a feature branch from the main branch. Branch names SHALL follow the convention `feature-<topic>` for new features or `fix-<topic>` for bug fixes.
@@ -33,6 +30,25 @@ The `opsx:propose` command SHALL automatically create a `feature-<topic>` or `fi
 - **GIVEN** a branch with the change name already exists
 - **WHEN** opsx:propose is run
 - **THEN** the system checks out that existing branch and proceeds with artifact generation
+
+## REMOVED Requirements
+
+### Requirement: Feature branches merge to test branch for validation
+**Reason**: The `test` branch is eliminated. Feature/fix branches are pushed directly to trigger CI builds in the test environment.
+**Migration**: Push feature/fix branches directly; CI builds non-main branches with test server configuration.
+
+### Requirement: Test branch triggers CI build
+**Reason**: Replaced by CI triggering on any branch push (non-main → test, main → production).
+**Migration**: CI workflow now triggers on all branch pushes.
+
+### Requirement: Multiple features are tested together
+**Reason**: With the test branch removed, features are tested independently on their own branches. Integration testing happens naturally when features merge to main.
+**Migration**: Test features independently by pushing their respective branches.
+
+## RENAMED Requirements
+
+FROM: Tested features merge to main
+TO: Archive merges feature branch to main and pushes
 
 ### Requirement: Archive merges feature branch to main and pushes
 After successful testing, the `/opsx:archive` command SHALL merge the feature/fix branch into main and push to trigger production deployment.

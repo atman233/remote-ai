@@ -2,9 +2,6 @@ name: Build APK
 
 on:
   push:
-    branches:
-      - main
-      - test
     paths:
       - 'mobile/**'
   workflow_dispatch:
@@ -67,21 +64,6 @@ jobs:
         with:
           name: cc-mobile-${{ github.ref_name }}
           path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
-
-      - name: Upload to GitHub Release (test rolling)
-        if: github.ref_name == 'test'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: test-latest
-          name: 'Test Build'
-          body: |
-            Automated test build from `test` branch.
-
-            Commit: ${{ github.sha }}
-            Server: easyaitest.wuya.asia
-          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
-          prerelease: true
-          make_latest: true
 
       - name: Upload to GitHub Release (production)
         if: github.ref_name == 'main'

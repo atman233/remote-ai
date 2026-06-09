@@ -20,15 +20,18 @@ context: |
 
   Git workflow:
   - All feature work forks from main branch
-  - opsx:propose MUST create a feature branch from main before generating artifacts
-  - Feature branches merge to test branch for validation
-  - test branch push triggers GitHub Actions to build test APK
-  - After testing passes, merge to main for production deployment
+  - opsx:propose MUST create a feature/fix branch from main before generating artifacts
+  - Branch naming: feature-<topic> for new features, fix-<topic> for bug fixes
+  - Feature/fix branches are pushed directly to trigger CI builds (test environment)
+  - After testing, /opsx:archive auto-commits, merges to main, pushes, and cleans up the branch
+  - main branch push triggers production build and GitHub Release
 
   Mobile CI:
   - Capacitor Android app, built via GitHub Actions
-  - Pushes to test branch trigger automatic APK builds
-  - Test APK uploaded as GitHub Release for direct phone download
+  - Pushes to any branch with mobile/** changes trigger automatic APK builds
+  - Non-main branches build with test server config (easyaitest.wuya.asia)
+  - Main branch builds with production server config (easyai.wuya.asia) and uploads to GitHub Release
+  - Feature/fix branch APKs available as GitHub Actions artifacts (not Releases)
 
   Constraints:
   - Daemon binds 127.0.0.1 only (never expose directly to network)
