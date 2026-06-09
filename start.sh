@@ -16,28 +16,6 @@ if ! command -v tmux &>/dev/null; then
     sudo apt-get update -qq && sudo apt-get install -y tmux
 fi
 
-# ---- Create default sessions if none exist ----
-TMUX_SESSIONS=$(tmux list-sessions 2>/dev/null | wc -l)
-
-if [ "$TMUX_SESSIONS" -eq 0 ]; then
-    echo -e "${GREEN}创建默认 tmux 会话...${NC}"
-
-    # Auto-detect projects from /mnt/e/
-    if [ -d /mnt/e/02-easyai-new ]; then
-        tmux new-session -d -s easyai -c /mnt/e/02-easyai-new
-        echo "  已创建: easyai -> /mnt/e/02-easyai-new"
-    fi
-
-    # Add more project directories as needed
-    # tmux new-session -d -s myproject -c /path/to/project
-
-    NEW_COUNT=$(tmux list-sessions 2>/dev/null | wc -l)
-    echo ""
-    echo -e "${GREEN}已创建 ${CYAN}${NEW_COUNT}${GREEN} 个 tmux 会话${NC}"
-else
-    echo -e "${GREEN}已有 ${CYAN}${TMUX_SESSIONS}${GREEN} 个 tmux 会话运行中${NC}"
-fi
-
 # ---- Check services ----
 echo ""
 
@@ -59,6 +37,13 @@ echo ""
 echo -e "${CYAN}========================================${NC}"
 echo -e "${CYAN}  启动完成！${NC}"
 echo -e "${CYAN}========================================${NC}"
+echo ""
+echo "配置的项目 (daemon/projects.json):"
+if [ -f daemon/projects.json ]; then
+    cat daemon/projects.json | grep -E '"name"|"path"' | paste - - | sed 's/.*"name": "\(.*\)".*"path": "\(.*\)".*/  \1 -> \2/' 2>/dev/null || echo "  (无)"
+else
+    echo "  (无)"
+fi
 echo ""
 echo "tmux 会话:"
 tmux list-sessions 2>/dev/null || echo "  (无)"

@@ -2,67 +2,6 @@ const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-function listSessions() {
-  try {
-    const output = execSync(
-      "tmux list-sessions -F '#{session_name}:#{pane_current_path}'",
-      { encoding: 'utf-8', timeout: 3000 }
-    ).trim();
-
-    if (!output) return [];
-
-    return output.split('\n').map((line) => {
-      const [name, cwd] = line.split(':');
-      return {
-        id: name,
-        cwd: cwd || '/',
-        hasClaudeCode: detectClaudeCode(name),
-        windows: countWindows(name),
-      };
-    });
-  } catch {
-    return [];
-  }
-}
-
-function detectClaudeCode(sessionName) {
-  try {
-    const procs = execSync(
-      `tmux list-panes -t '${sessionName}' -F '#{pane_pid}'`,
-      { encoding: 'utf-8', timeout: 2000 }
-    ).trim();
-
-    if (!procs) return false;
-
-    // Check each pane's process tree for claude/claude-code
-    return procs.split('\n').some((pid) => {
-      try {
-        const tree = execSync(
-          `ps -o comm= --ppid ${pid.trim()} 2>/dev/null; cat /proc/${pid.trim()}/task/${pid.trim()}/children 2>/dev/null`,
-          { encoding: 'utf-8', timeout: 1000 }
-        );
-        return /claude/i.test(tree);
-      } catch {
-        return false;
-      }
-    });
-  } catch {
-    return false;
-  }
-}
-
-function countWindows(sessionName) {
-  try {
-    const output = execSync(
-      `tmux list-windows -t '${sessionName}'`,
-      { encoding: 'utf-8', timeout: 2000 }
-    ).trim();
-    return output.split('\n').length;
-  } catch {
-    return 0;
-  }
-}
-
 function getSessionCwd(sessionName) {
   try {
     return execSync(
@@ -97,4 +36,4 @@ function loadCommands(cwd) {
   return DEFAULT_COMMANDS;
 }
 
-module.exports = { listSessions, getSessionCwd, loadCommands };
+module.exports = { getSessionCwd, loadCommands };
