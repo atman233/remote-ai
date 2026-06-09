@@ -10,7 +10,7 @@
 <body>
   <!-- Top Bar -->
   <div id="topbar">
-    <button id="menu-btn" aria-label="会话列表">&#9776;</button>
+    <button id="menu-btn" aria-label="项目列表">&#9776;</button>
     <div id="session-info">
       <span id="session-name">未连接</span>
       <span id="connection-dot" class="dot-offline"></span>
@@ -24,13 +24,12 @@
   <!-- Side Drawer -->
   <div id="drawer">
     <div id="drawer-header">
-      <h3>会话列表</h3>
+      <h3>项目列表</h3>
       <button id="drawer-close" aria-label="关闭">&times;</button>
     </div>
     <div id="session-list"></div>
     <div id="drawer-footer">
       <button id="drawer-refresh">刷新</button>
-      <button id="drawer-new">+ 新建会话</button>
     </div>
   </div>
 
@@ -62,20 +61,6 @@
       <div id="settings-buttons">
         <button id="settings-save">保存</button>
         <button id="settings-cancel">取消</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- New Session Modal -->
-  <div id="new-session-modal" class="modal hidden">
-    <div class="modal-content">
-      <h3>新建会话</h3>
-      <label>会话名称</label>
-      <input type="text" id="new-session-name" placeholder="输入新会话名称" />
-      <p class="help-text">将在笔记本上创建新的 tmux 会话。需要笔记本上有对应的项目目录（会话名称作为项目目录名）。</p>
-      <div id="new-session-buttons">
-        <button id="new-session-create">创建</button>
-        <button id="new-session-cancel">取消</button>
       </div>
     </div>
   </div>

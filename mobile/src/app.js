@@ -6,8 +6,8 @@ import { Keyboard } from '@capacitor/keyboard';
 
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
-let sessions = [];
-let activeSession = null;
+let projects = [];
+let activeProject = null;
 let ws = null;
 let term = null;
 let fitAddon = null;
@@ -25,7 +25,6 @@ const drawerOverlay = $('drawer-overlay');
 const drawerClose = $('drawer-close');
 const sessionList = $('session-list');
 const drawerRefresh = $('drawer-refresh');
-const drawerNew = $('drawer-new');
 const terminalContainer = $('terminal-container');
 const statusOverlay = $('status-overlay');
 const statusText = $('status-text');
@@ -39,41 +38,29 @@ const settingUser = $('setting-user');
 const settingPass = $('setting-pass');
 const settingsSave = $('settings-save');
 const settingsCancel = $('settings-cancel');
-const newSessionModal = $('new-session-modal');
-const newSessionName = $('new-session-name');
-const newSessionCreate = $('new-session-create');
-const newSessionCancel = $('new-session-cancel');
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
-  // Load settings from Capacitor Preferences (or localStorage fallback)
   await loadSettings();
 
-  // Init xterm
   initTerminal();
 
-  // Wire events
   menuBtn.addEventListener('click', toggleDrawer);
   drawerOverlay.addEventListener('click', closeDrawer);
   drawerClose.addEventListener('click', closeDrawer);
-  drawerRefresh.addEventListener('click', refreshSessions);
-  drawerNew.addEventListener('click', () => showModal(newSessionModal));
+  drawerRefresh.addEventListener('click', refreshProjects);
   settingsBtn.addEventListener('click', () => showSettingsModal());
   settingsSave.addEventListener('click', saveSettings);
   settingsCancel.addEventListener('click', () => hideModal(settingsModal));
   statusRetry.addEventListener('click', reconnect);
   cmdPanelHandle.addEventListener('click', toggleCmdPanel);
-  newSessionCreate.addEventListener('click', createSession);
-  newSessionCancel.addEventListener('click', () => hideModal(newSessionModal));
 
-  // If settings exist, connect
   if (settings.host && settings.pass) {
-    await refreshSessions();
+    await refreshProjects();
   } else {
     showSettingsModal();
   }
 
-  // Handle keyboard
   try {
     Keyboard.addListener('keyboardWillShow', (info) => {
       terminalContainer.style.height = `calc(100% - ${info.keyboardHeight}px)`;
@@ -122,7 +109,7 @@ async function saveSettings() {
     localStorage.setItem('cc_pass', settings.pass);
   }
   hideModal(settingsModal);
-  await refreshSessions();
+  await refreshProjects();
 }
 
 // ---- Auth header helper ----
@@ -141,36 +128,36 @@ function wsUrl(path) {
   return `wss://${settings.host}${path}?token=${encodeURIComponent(settings.pass)}`;
 }
 
-// ---- Sessions ----
-async function refreshSessions() {
+// ---- Projects ----
+async function refreshProjects() {
   try {
-    const resp = await fetch(`${baseUrl()}/api/sessions`, { headers: authHeaders() });
+    const resp = await fetch(`${baseUrl()}/api/projects`, { headers: authHeaders() });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
-    sessions = data.sessions || [];
-    renderSessionList();
+    projects = data.projects || [];
+    renderProjectList();
   } catch (e) {
-    console.error('Failed to fetch sessions:', e);
-    sessions = [];
-    renderSessionList();
+    console.error('Failed to fetch projects:', e);
+    projects = [];
+    renderProjectList();
   }
 }
 
-function renderSessionList() {
+function renderProjectList() {
   sessionList.innerHTML = '';
-  if (sessions.length === 0) {
-    sessionList.innerHTML = '<div style="padding:16px;color:var(--fg2);text-align:center">未检测到 tmux 会话</div>';
+  if (projects.length === 0) {
+    sessionList.innerHTML = '<div style="padding:16px;color:var(--fg2);text-align:center">未配置项目</div>';
     return;
   }
-  sessions.forEach((s) => {
+  projects.forEach((p) => {
     const div = document.createElement('div');
-    div.className = 'session-item' + (activeSession && activeSession.id === s.id ? ' active' : '');
+    div.className = 'session-item' + (activeProject && activeProject.name === p.name ? ' active' : '');
     div.innerHTML = `
-      <span class="name">${esc(s.id)}</span>
-      ${s.hasClaudeCode ? '<span class="badge">CC</span>' : ''}
+      <span class="name">${esc(p.name)}</span>
+      ${p.hasClaudeCode ? '<span class="badge">CC</span>' : ''}
     `;
     div.addEventListener('click', () => {
-      connectToSession(s);
+      startProject(p);
       closeDrawer();
     });
     sessionList.appendChild(div);
@@ -178,19 +165,35 @@ function renderSessionList() {
 }
 
 // ---- Connection ----
-async function connectToSession(session) {
+async function startProject(project) {
   if (ws) {
     ws.close(1000);
     ws = null;
   }
 
-  activeSession = session;
-  sessionName.textContent = session.id;
+  activeProject = project;
+  sessionName.textContent = project.name;
   setStatus('offline');
+  showStatus('启动中...', false);
 
-  // Fetch commands for this session
   try {
-    const resp = await fetch(`${baseUrl()}/api/sessions/${encodeURIComponent(session.id)}/commands`, {
+    const resp = await fetch(`${baseUrl()}/api/projects/${encodeURIComponent(project.name)}/start`, {
+      method: 'POST',
+      headers: authHeaders(),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({}));
+      showStatus(err.error || '启动失败', true);
+      return;
+    }
+  } catch (e) {
+    showStatus('启动失败: ' + e.message, true);
+    return;
+  }
+
+  // Fetch commands for this project
+  try {
+    const resp = await fetch(`${baseUrl()}/api/sessions/${encodeURIComponent(project.name)}/commands`, {
       headers: authHeaders(),
     });
     if (resp.ok) {
@@ -201,8 +204,7 @@ async function connectToSession(session) {
     renderCommands([]);
   }
 
-  // Connect WebSocket
-  connectWS(session.id);
+  connectWS(project.name);
 }
 
 function connectWS(sessionId) {
@@ -243,7 +245,7 @@ function connectWS(sessionId) {
   };
 
   ws.onclose = (evt) => {
-    if (evt.code === 1000) return; // Intentional close
+    if (evt.code === 1000) return;
     setStatus('offline');
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
@@ -265,8 +267,8 @@ function scheduleReconnect(sessionId) {
 }
 
 function reconnect() {
-  if (activeSession) {
-    connectWS(activeSession.id);
+  if (activeProject) {
+    connectWS(activeProject.name);
   }
 }
 
@@ -310,18 +312,15 @@ function initTerminal() {
   term.open(terminalContainer);
   fitAddon.fit();
 
-  // Monitor resize
   const ro = new ResizeObserver(() => { fitAddon.fit(); });
   ro.observe(terminalContainer);
 
-  // If user types directly in terminal, forward to WS
   term.onData((data) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
     }
   });
 
-  // If we resize, tell the server
   term.onResize(({ cols, rows }) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ cols, rows }));
@@ -342,7 +341,6 @@ function renderCommands(commands) {
         term.write(cmd.text);
       }
     });
-    // Visual hint for send action
     if (cmd.text.endsWith('\n') && cmd.text.length > 1) {
       btn.classList.add('send');
     }
@@ -359,7 +357,7 @@ function toggleCmdPanel() {
 function toggleDrawer() {
   drawer.classList.toggle('open');
   drawerOverlay.classList.toggle('active');
-  if (drawer.classList.contains('open')) refreshSessions();
+  if (drawer.classList.contains('open')) refreshProjects();
 }
 
 function closeDrawer() {
@@ -385,29 +383,6 @@ function hideStatus() {
 // ---- Modal ----
 function showModal(el) { el.classList.remove('hidden'); }
 function hideModal(el) { el.classList.add('hidden'); }
-
-// ---- New Session ----
-async function createSession() {
-  const name = newSessionName.value.trim();
-  if (!name) return;
-  try {
-    const resp = await fetch(`${baseUrl()}/api/sessions`, {
-      method: 'POST',
-      headers: authHeaders(),
-      body: JSON.stringify({ name }),
-    });
-    if (resp.ok) {
-      hideModal(newSessionModal);
-      newSessionName.value = '';
-      await refreshSessions();
-    } else {
-      const err = await resp.json().catch(() => ({}));
-      alert('创建失败: ' + (err.error || '未知错误'));
-    }
-  } catch (e) {
-    alert('创建失败: ' + e.message);
-  }
-}
 
 // ---- Utils ----
 function esc(s) {

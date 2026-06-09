@@ -2,7 +2,8 @@ const express = require('express');
 const expressWs = require('express-ws');
 const pty = require('node-pty');
 
-const { listSessions, getSessionCwd, loadCommands } = require('./session-manager');
+const { getSessionCwd, loadCommands } = require('./session-manager');
+const { listProjects, getProject, sessionExists } = require('./project-manager');
 
 const PORT = process.env.PORT || 9528;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -54,23 +55,54 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'ok', uptime: process.uptime() });
 });
 
-app.get('/api/sessions', (_req, res) => {
-  const sessions = listSessions();
-  res.json({ sessions });
+// ---- Projects API ----
+
+app.get('/api/projects', (_req, res) => {
+  try {
+    const projects = listProjects();
+    res.json({ projects });
+  } catch (e) {
+    log(RED(`Failed to list projects: ${e.message}`));
+    res.status(500).json({ error: '读取项目配置失败' });
+  }
 });
 
-app.post('/api/sessions', (req, res) => {
-  const { name } = req.body || {};
-  if (!name || !/^[a-zA-Z0-9_-]+$/.test(name)) {
-    return res.status(400).json({ error: '无效的会话名称' });
+app.post('/api/projects/:name/start', (req, res) => {
+  const { name } = req.params;
+  const project = getProject(name);
+
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在: ' + name });
   }
+
   try {
-    execSync(`tmux new-session -d -s ${name}`, { timeout: 5000 });
-    log(GREEN(`Created session: ${name}`));
-    res.json({ id: name, cwd: process.env.HOME || '/', hasClaudeCode: false, windows: 1 });
+    require('fs').accessSync(project.path, require('fs').constants.R_OK);
+  } catch {
+    return res.status(400).json({ error: '项目路径不存在: ' + project.path });
+  }
+
+  try {
+    // Reuse existing session if present
+    const { execSync } = require('child_process');
+    const exists = (() => {
+      try { execSync(`tmux has-session -t '${name}' 2>/dev/null`, { timeout: 2000 }); return true; } catch { return false; }
+    })();
+
+    if (!exists) {
+      // Create tmux session in project directory
+      execSync(`tmux new-session -d -s '${name}' -c '${project.path}'`, { timeout: 5000 });
+      log(GREEN(`Created session: ${name} at ${project.path}`));
+      // Auto-launch Claude
+      execSync(`tmux send-keys -t '${name}' 'claude' Enter`, { timeout: 2000 });
+      log(`Launched Claude in session: ${name}`);
+    } else {
+      log(`Reusing existing session: ${name}`);
+    }
+
+    res.json({ id: name, cwd: project.path });
   } catch (e) {
-    log(RED(`Failed to create session: ${name} ${e.message}`));
-    res.status(500).json({ error: '创建会话失败: ' + e.message });
+    log(RED(`Failed to start project session: ${name} ${e.message}`));
+    res.status(500).json({ error: '启动项目会话失败: ' + e.message });
   }
 });
 
@@ -87,8 +119,7 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
 
   log(GREEN(`WS connect: ${sessionId}`));
 
-  const sessions = listSessions();
-  if (!sessions.find((s) => s.id === sessionId)) {
+  if (!sessionExists(sessionId)) {
     ws.send('\x1b[31m会话不存在或已关闭\x1b[0m\n');
     ws.close();
     return;
@@ -165,10 +196,10 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
 
 app.listen(PORT, HOST, () => {
   log(CYAN(`Daemon listening on ${HOST}:${PORT}`));
-  const sessions = listSessions();
-  log(`Found ${sessions.length} tmux session(s)`);
-  sessions.forEach((s) =>
-    log(`  ${s.id}  ${GRAY(s.cwd)}  ${s.hasClaudeCode ? GREEN('CC') : ''}`)
+  const projects = listProjects();
+  log(`Found ${projects.length} project(s)`);
+  projects.forEach((p) =>
+    log(`  ${p.name}  ${GRAY(p.path)}  ${p.hasClaudeCode ? GREEN('CC') : ''}`)
   );
 });
 
