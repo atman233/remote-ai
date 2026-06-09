@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Preferences } from '@capacitor/preferences';
 import { Keyboard } from '@capacitor/keyboard';
+import { StatusBar } from '@capacitor/status-bar';
 
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
@@ -39,8 +40,20 @@ const settingPass = $('setting-pass');
 const settingsSave = $('settings-save');
 const settingsCancel = $('settings-cancel');
 
+// ---- Status Bar ----
+async function initStatusBar() {
+  try {
+    const info = await StatusBar.getInfo();
+    document.documentElement.style.setProperty('--safe-top', `${info.height}px`);
+  } catch {
+    // Fall back to CSS env() with a sensible default
+    document.documentElement.style.setProperty('--safe-top', 'env(safe-area-inset-top, 24px)');
+  }
+}
+
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
+  await initStatusBar();
   await loadSettings();
 
   initTerminal();
