@@ -78,3 +78,17 @@ jobs:
             Server: easyai.wuya.asia
           files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           make_latest: true
+
+      - name: Upload to GitHub Release (test)
+        if: github.ref_name != 'main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: test-${{ github.ref_name }}-${{ github.run_number }}
+          name: 'Test: ${{ github.ref_name }}'
+          body: |
+            Test build from `${{ github.ref_name }}` branch.
+
+            Commit: ${{ github.sha }}
+            Server: easyaitest.wuya.asia
+          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          prerelease: true
