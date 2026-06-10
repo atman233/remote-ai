@@ -323,6 +323,22 @@ function initTerminal() {
   term.loadAddon(new WebLinksAddon());
 
   term.open(terminalContainer);
+
+  // Block alternate screen switching (DECSET 47/1047/1049) so tmux
+  // renders in the normal buffer, preserving scrollback for touch scrolling.
+  const isAltScreen = (params) => {
+    const code = params[0];
+    return code === 47 || code === 1047 || code === 1049;
+  };
+  term.parser.registerCsiHandler({prefix: '?', final: 'h'}, (params) => {
+    if (isAltScreen(params)) return true;
+    return false;
+  });
+  term.parser.registerCsiHandler({prefix: '?', final: 'l'}, (params) => {
+    if (isAltScreen(params)) return true;
+    return false;
+  });
+
   fitAddon.fit();
 
   const ro = new ResizeObserver(() => { fitAddon.fit(); });
@@ -356,13 +372,24 @@ function initScrollButtons() {
   downBtn.className = 'scroll-btn';
   downBtn.textContent = '▼';
 
+  function findViewport() {
+    return document.querySelector('.xterm-viewport')
+      || document.querySelector('.xterm-scrollable-element');
+  }
+
   upBtn.addEventListener('click', () => {
-    const vp = document.querySelector('.xterm .xterm-viewport');
-    if (vp) vp.scrollBy(0, -120);
+    try {
+      term.scrollToTop();
+      const vp = findViewport();
+      if (vp) vp.scrollTop = 0;
+    } catch (e) { console.error('scroll up failed:', e); }
   });
   downBtn.addEventListener('click', () => {
-    const vp = document.querySelector('.xterm .xterm-viewport');
-    if (vp) vp.scrollTop = vp.scrollHeight;
+    try {
+      term.scrollToBottom();
+      const vp = findViewport();
+      if (vp) vp.scrollTop = vp.scrollHeight;
+    } catch (e) { console.error('scroll down failed:', e); }
   });
 
   container.appendChild(upBtn);
