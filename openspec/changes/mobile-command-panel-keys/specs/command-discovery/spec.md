@@ -1,12 +1,12 @@
 ## MODIFIED Requirements
 
 ### Requirement: Command list includes terminal control helpers
-The daemon SHALL include terminal interaction commands in every command response, placed before built-in and project commands. The terminal commands are: Esc (`\x1b`), Tab (`\x09`), Shift+Tab (`\x1b[Z`), `启动 Claude` (`claude\n`), `确认 y` (`y\n`), `拒绝 n` (`n\n`), `中断` (`\x03`), and `清屏` (`\x0c`). Each terminal command SHALL have `kind: "terminal"`.
+The daemon SHALL include terminal interaction commands in every command response, placed before built-in and project commands. The terminal commands are: Esc (`\x1b`), Tab (`\x09`), Shift+Tab (`\x1b[Z`), ↑ (`\x1b[A`), ↓ (`\x1b[B`), Enter (`\r`), `确认 y` (`y\n`), `拒绝 n` (`n\n`), `中断` (`\x03`), and `清屏` (`\x0c`). Each terminal command SHALL have `kind: "terminal"`.
 
 #### Scenario: Terminal helpers present
 - **GIVEN** a project session is active
 - **WHEN** the mobile app requests commands
-- **THEN** the response includes 8 terminal control commands, each with `kind: "terminal"`
+- **THEN** the response includes 10 terminal control commands, each with `kind: "terminal"`
 
 ## ADDED Requirements
 
