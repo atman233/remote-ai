@@ -339,6 +339,34 @@ function initTerminal() {
       ws.send(JSON.stringify({ cols, rows }));
     }
   });
+
+  initScrollButtons();
+}
+
+// ---- Scroll Buttons ----
+function initScrollButtons() {
+  const container = document.createElement('div');
+  container.className = 'scroll-btns hidden';
+
+  const upBtn = document.createElement('button');
+  upBtn.className = 'scroll-btn';
+  upBtn.textContent = '▲';
+
+  const downBtn = document.createElement('button');
+  downBtn.className = 'scroll-btn';
+  downBtn.textContent = '▼';
+
+  upBtn.addEventListener('click', () => { term.scrollLines(-5); });
+  downBtn.addEventListener('click', () => { term.scrollToBottom(); });
+
+  container.appendChild(upBtn);
+  container.appendChild(downBtn);
+  terminalContainer.appendChild(container);
+
+  term.onScroll(() => {
+    const atBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
+    container.classList.toggle('hidden', atBottom);
+  });
 }
 
 // ---- Command Panel ----
