@@ -31,5 +31,5 @@
 
 ## 6. Validation
 
-- [ ] 6.1 Push to a test branch and verify test build produces `ai-remote-test-v0.0.X.apk` and updates `test-latest` release
-- [ ] 6.2 Merge to main and verify production build produces `ai-remote-v0.0.X.apk`, creates version tag, and is release-signed
+- [x] 6.1 Push to a test branch and verify test build produces `ai-remote-test-v0.0.X.apk` and updates `test-latest` release
+- [x] 6.2 Merge to main and verify production build produces `ai-remote-v0.0.X.apk`, creates version tag, and is release-signed
