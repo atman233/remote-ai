@@ -138,7 +138,10 @@ jobs:
       - name: Delete old test-latest release and tag
         if: github.ref_name != 'main'
         run: |
-          gh api repos/${{ github.repository }}/releases/tags/test-latest -X DELETE 2>/dev/null || true
+          RELEASE_ID=$(gh api repos/${{ github.repository }}/releases/tags/test-latest --jq '.id' 2>/dev/null || true)
+          if [ -n "$RELEASE_ID" ]; then
+            gh api repos/${{ github.repository }}/releases/$RELEASE_ID -X DELETE
+          fi
           gh api repos/${{ github.repository }}/git/refs/tags/test-latest -X DELETE 2>/dev/null || true
           sleep 3
         env:
