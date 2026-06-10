@@ -13,6 +13,9 @@ let ws = null;
 let term = null;
 let fitAddon = null;
 let reconnectTimer = null;
+let scrollbackBuf = '';
+let historyOverlay = null;
+let historyContent = null;
 
 // ---- DOM refs ----
 const $ = (id) => document.getElementById(id);
@@ -237,6 +240,7 @@ function connectWS(sessionId) {
   ws.onopen = () => {
     hideStatus();
     setStatus('online');
+    scrollbackBuf = '';
     if (term) {
       term.clear();
       term.focus();
@@ -247,10 +251,29 @@ function connectWS(sessionId) {
   ws.onmessage = (evt) => {
     if (!term) return;
     try {
+      let raw;
       if (evt.data instanceof ArrayBuffer) {
-        term.write(new Uint8Array(evt.data));
+        raw = new Uint8Array(evt.data);
+        term.write(raw);
       } else if (typeof evt.data === 'string') {
-        term.write(evt.data);
+        raw = evt.data;
+        term.write(raw);
+      }
+      if (raw) {
+        if (typeof raw === 'string') {
+          scrollbackBuf += raw;
+        } else {
+          scrollbackBuf += new TextDecoder().decode(raw);
+        }
+      }
+      // Trim buffer to ~100K chars
+      if (scrollbackBuf.length > 100000) {
+        scrollbackBuf = scrollbackBuf.slice(-80000);
+      }
+      // Update overlay if visible
+      if (historyOverlay && historyOverlay.classList.contains('active')) {
+        historyContent.textContent = stripAnsi(scrollbackBuf);
+        historyContent.scrollTop = historyContent.scrollHeight;
       }
     } catch {
       // ignore write errors
@@ -339,6 +362,70 @@ function initTerminal() {
       ws.send(JSON.stringify({ cols, rows }));
     }
   });
+
+  initScrollButtons();
+}
+
+// ---- Scroll Buttons ----
+function initScrollButtons() {
+  // Build history overlay
+  historyOverlay = document.createElement('div');
+  historyOverlay.id = 'history-overlay';
+
+  const header = document.createElement('div');
+  header.id = 'history-overlay-header';
+  header.innerHTML = '<span>对话历史</span>';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.id = 'history-overlay-close';
+  closeBtn.textContent = '✕';
+  closeBtn.addEventListener('click', hideHistory);
+  header.appendChild(closeBtn);
+
+  historyContent = document.createElement('pre');
+  historyContent.id = 'history-content';
+
+  historyOverlay.appendChild(header);
+  historyOverlay.appendChild(historyContent);
+  document.body.appendChild(historyOverlay);
+
+  // Floating toggle buttons
+  const container = document.createElement('div');
+  container.className = 'scroll-btns';
+
+  const upBtn = document.createElement('button');
+  upBtn.className = 'scroll-btn';
+  upBtn.textContent = '▲';
+
+  const downBtn = document.createElement('button');
+  downBtn.className = 'scroll-btn';
+  downBtn.textContent = '▼';
+
+  upBtn.addEventListener('click', showHistory);
+  downBtn.addEventListener('click', hideHistory);
+
+  container.appendChild(upBtn);
+  container.appendChild(downBtn);
+  document.body.appendChild(container);
+}
+
+function showHistory() {
+  if (!historyOverlay || !historyContent) return;
+  historyContent.textContent = stripAnsi(scrollbackBuf);
+  // Scroll to show content just above the live viewport
+  historyContent.scrollTop = Math.max(0, historyContent.scrollHeight - historyContent.clientHeight - 300);
+  historyOverlay.classList.add('active');
+}
+
+function hideHistory() {
+  if (historyOverlay) historyOverlay.classList.remove('active');
+}
+
+function stripAnsi(text) {
+  return text
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+    .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
+    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 }
 
 // ---- Command Panel ----
