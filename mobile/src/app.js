@@ -346,7 +346,7 @@ function initTerminal() {
 // ---- Scroll Buttons ----
 function initScrollButtons() {
   const container = document.createElement('div');
-  container.className = 'scroll-btns hidden';
+  container.className = 'scroll-btns';
 
   const upBtn = document.createElement('button');
   upBtn.className = 'scroll-btn';
@@ -361,14 +361,7 @@ function initScrollButtons() {
 
   container.appendChild(upBtn);
   container.appendChild(downBtn);
-  terminalContainer.appendChild(container);
-
-  term.onScroll(() => {
-    const buf = term.buffer.active;
-    const atBottom = buf.viewportY >= buf.baseY;
-    const hasScrollback = buf.baseY > term.rows;
-    container.classList.toggle('hidden', !hasScrollback && atBottom);
-  });
+  document.body.appendChild(container);
 }
 
 // ---- Command Panel ----
