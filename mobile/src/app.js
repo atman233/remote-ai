@@ -356,8 +356,14 @@ function initScrollButtons() {
   downBtn.className = 'scroll-btn';
   downBtn.textContent = '▼';
 
-  upBtn.addEventListener('click', () => { term.scrollLines(-5); });
-  downBtn.addEventListener('click', () => { term.scrollToBottom(); });
+  upBtn.addEventListener('click', () => {
+    const vp = document.querySelector('.xterm .xterm-viewport');
+    if (vp) vp.scrollBy(0, -120);
+  });
+  downBtn.addEventListener('click', () => {
+    const vp = document.querySelector('.xterm .xterm-viewport');
+    if (vp) vp.scrollTop = vp.scrollHeight;
+  });
 
   container.appendChild(upBtn);
   container.appendChild(downBtn);
