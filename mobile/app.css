@@ -196,6 +196,8 @@ body {
 }
 
 .xterm { height: 100%; padding: 4px; }
+.xterm .xterm-viewport { scrollbar-width: none; }
+.xterm .xterm-viewport::-webkit-scrollbar { display: none; }
 
 /* ---- Status Overlay ---- */
 #status-overlay {
