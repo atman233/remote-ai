@@ -83,7 +83,7 @@ jobs:
       - name: Decode keystore (production)
         if: github.ref_name == 'main'
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > mobile/keystore.jks
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > mobile/android/keystore.jks
 
       - name: Build APK (production)
         if: github.ref_name == 'main'
