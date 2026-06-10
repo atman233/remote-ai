@@ -16,6 +16,31 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute version
+        id: version
+        run: |
+          MAJOR_MINOR=$(cat VERSION)
+          TAG_PATTERN="v${MAJOR_MINOR}.*"
+          PATCH=$(git tag -l "$TAG_PATTERN" | wc -l)
+          PATCH=$((PATCH + 1))
+          VERSION_RAW="${MAJOR_MINOR}.${PATCH}"
+          VERSION="v${VERSION_RAW}"
+          VERSION_CODE=$PATCH
+
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version_raw=$VERSION_RAW" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
+          echo "Computed version: $VERSION (versionCode: $VERSION_CODE)"
+
+      - name: Set version in package.json
+        run: |
+          VERSION="${{ steps.version.outputs.version_raw }}"
+          tmp=$(mktemp)
+          jq --arg v "$VERSION" '.version = $v' mobile/package.json > "$tmp"
+          mv "$tmp" mobile/package.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -55,40 +80,78 @@ jobs:
         run: npx cap sync android
         working-directory: mobile
 
-      - name: Build APK
-        run: cd android && chmod +x ./gradlew && ./gradlew assembleDebug
+      - name: Decode keystore (production)
+        if: github.ref_name == 'main'
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > mobile/keystore.jks
+
+      - name: Build APK (production)
+        if: github.ref_name == 'main'
+        run: |
+          cd android && chmod +x ./gradlew && ./gradlew assembleRelease \
+            -PversionCode=${{ steps.version.outputs.version_code }} \
+            -PversionName=${{ steps.version.outputs.version_raw }} \
+            -PkeystorePath=../keystore.jks \
+            -PkeystorePassword="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -PkeyAlias="${{ secrets.KEY_ALIAS }}" \
+            -PkeyPassword="${{ secrets.KEY_PASSWORD }}"
+        working-directory: mobile
+
+      - name: Build APK (test)
+        if: github.ref_name != 'main'
+        run: |
+          cd android && chmod +x ./gradlew && ./gradlew assembleDebug \
+            -PversionCode=${{ steps.version.outputs.version_code }} \
+            -PversionName=${{ steps.version.outputs.version_raw }}
         working-directory: mobile
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: cc-mobile-${{ github.ref_name }}
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: cc-mobile-${{ steps.version.outputs.version }}
+          path: mobile/android/app/build/outputs/apk/**/*.apk
 
       - name: Upload to GitHub Release (production)
         if: github.ref_name == 'main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
-          name: 'Release v${{ github.run_number }}'
+          tag_name: ${{ steps.version.outputs.version }}
+          name: 'Release ${{ steps.version.outputs.version }}'
           body: |
             Production build from `main` branch.
 
+            Version: ${{ steps.version.outputs.version }}
             Commit: ${{ github.sha }}
             Server: easyai.wuya.asia
-          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          files: mobile/android/app/build/outputs/apk/release/*.apk
           make_latest: true
+
+      - name: Create and push version tag
+        if: github.ref_name == 'main'
+        run: |
+          git tag ${{ steps.version.outputs.version }}
+          git push origin ${{ steps.version.outputs.version }}
+
+      - name: Delete old test-latest release
+        if: github.ref_name != 'main'
+        run: |
+          gh release delete test-latest --yes 2>/dev/null || true
+          git push origin --delete test-latest 2>/dev/null || true
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Upload to GitHub Release (test)
         if: github.ref_name != 'main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: test-${{ github.ref_name }}-${{ github.run_number }}
+          tag_name: test-latest
           name: 'Test: ${{ github.ref_name }}'
           body: |
             Test build from `${{ github.ref_name }}` branch.
 
+            Version: ${{ steps.version.outputs.version }}
             Commit: ${{ github.sha }}
             Server: easyaitest.wuya.asia
-          files: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          files: mobile/android/app/build/outputs/apk/debug/*.apk
           prerelease: true
+          make_latest: false
