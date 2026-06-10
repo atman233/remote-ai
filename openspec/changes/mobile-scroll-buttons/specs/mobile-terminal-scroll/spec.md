@@ -1,45 +1,44 @@
 ## ADDED Requirements
 
-### Requirement: Floating scroll buttons displayed on terminal
+### Requirement: Floating scroll buttons
 
-系统 SHALL 在终端容器右下角渲染两个半透明浮动按钮：「向上滚动」（↑）和「回到底部」（↓），提供触屏可操作的终端缓冲区滚动方式。
+系统 SHALL 在终端右下角渲染两个浮动按钮（▲ 和 ▼），z-index: 9999 浮于所有元素之上，提供移动端可触摸操作的对话历史查看方式。
 
-#### Scenario: Scroll buttons appear when scrolled away from bottom
-- **WHEN** 用户向上滚动终端缓冲区（离开最新输出位置）
-- **THEN** 浮动按钮组以 opacity: 0.7 显示在终端右下角，距离右边缘 12px、下边缘 12px
+#### Scenario: Scroll buttons always visible
+- **WHEN** 终端已连接并接收数据
+- **THEN** 浮动按钮始终显示在终端右下角
 
-#### Scenario: Scroll buttons hidden when at bottom
-- **WHEN** 终端滚动回到最底部（显示最新输出）
-- **THEN** 浮动按钮组自动隐藏（opacity: 0）
+### Requirement: History overlay
 
-### Requirement: Scroll up by lines
+系统 SHALL 在用户点击 ▲ 按钮时显示全屏「对话历史」浮层，展示所有累积的 PTY 输出文本（ANSI 转义序列已剥离）。浮层支持原生触摸滚动。
 
-系统 SHALL 在用户点击「向上滚动」按钮时，将终端缓冲区向上滚动 5 行。
+#### Scenario: Open history overlay
+- **WHEN** 用户点击 ▲ 按钮
+- **THEN** 全屏历史浮层以 display: flex 显示
+- **AND** 浮层内容为 session 开始以来所有 PTY 输出的纯文本
+- **AND** 浮层自动滚动到距底部约一屏的位置
 
-#### Scenario: User taps scroll up button
-- **WHEN** 用户点击「向上滚动」按钮
-- **THEN** 终端缓冲区向上滚动 5 行（term.scrollLines(-5)）
-- **AND** 按钮组保持可见
+#### Scenario: Close history overlay
+- **WHEN** 用户点击 ▼ 按钮或浮层右上角 ✕ 按钮
+- **THEN** 历史浮层隐藏（display: none），用户回到实时终端视图
 
-### Requirement: Scroll to bottom
+### Requirement: Scrollback text accumulation
 
-系统 SHALL 在用户点击「回到底部」按钮时，将终端缓冲区滚动到最新输出位置。
+系统 SHALL 在每次 `ws.onmessage` 收到 PTY 数据时将原始文本追加到累积缓冲区，缓冲区上限 100,000 字符，超出时保留最后 80,000 字符。
 
-#### Scenario: User taps scroll to bottom button
-- **WHEN** 用户点击「回到底部」按钮
-- **THEN** 终端滚动到缓冲区最底部（term.scrollToBottom()）
-- **AND** 按钮组自动隐藏
+#### Scenario: Text accumulation
+- **WHEN** WebSocket 收到 PTY 输出数据
+- **THEN** 数据被追加到 scrollbackBuf
+- **AND** 如果浮层当前可见，浮层内容实时更新并自动滚动到底部
 
-### Requirement: Button visibility tracking
+#### Scenario: Buffer trim
+- **WHEN** scrollbackBuf 超过 100,000 字符
+- **THEN** 缓冲区裁剪至最后 80,000 字符
 
-系统 SHALL 通过 xterm 的 scroll 事件追踪终端滚动位置，以决定按钮组的显示/隐藏状态。
+### Requirement: Hidden native scrollbar
 
-#### Scenario: Programmatic write does not show buttons
-- **WHEN** 终端通过 `term.write()` 接收到新的输出数据
-- **AND** 用户在终端最底部
-- **THEN** 按钮组保持隐藏状态
+系统 SHALL 隐藏 xterm 原生滚动条，因为滚动查看历史已由浮动按钮和历史浮层替代。
 
-#### Scenario: User scroll action shows buttons
-- **WHEN** 用户通过点击「向上滚动」按钮触发滚动
-- **AND** 终端缓冲区离开最底部
-- **THEN** 按钮组保持可见
+#### Scenario: xterm scrollbar hidden
+- **WHEN** 终端渲染
+- **THEN** `.xterm .xterm-viewport` 的滚动条不可见（scrollbar-width: none / ::-webkit-scrollbar display: none）
