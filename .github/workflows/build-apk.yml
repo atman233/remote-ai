@@ -138,8 +138,9 @@ jobs:
       - name: Delete old test-latest release
         if: github.ref_name != 'main'
         run: |
-          gh release delete test-latest --yes 2>/dev/null || true
+          gh release delete test-latest --yes --cleanup-tag 2>/dev/null || true
           git push origin --delete test-latest 2>/dev/null || true
+          sleep 5
         env:
           GH_TOKEN: ${{ github.token }}
 
