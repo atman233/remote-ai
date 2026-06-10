@@ -344,20 +344,34 @@ function initTerminal() {
 // ---- Command Panel ----
 function renderCommands(commands) {
   cmdButtons.innerHTML = '';
+  const groups = { terminal: [], builtin: [], project: [] };
   commands.forEach((cmd) => {
-    const btn = document.createElement('button');
-    btn.className = 'cmd-btn';
-    btn.textContent = cmd.label;
-    btn.addEventListener('click', () => {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(cmd.text);
-        term.write(cmd.text);
-      }
-    });
-    if (cmd.text.endsWith('\n') && cmd.text.length > 1) {
-      btn.classList.add('send');
+    const kind = (groups[cmd.kind] && cmd.kind) || 'builtin';
+    groups[kind].push(cmd);
+  });
+
+  ['terminal', 'builtin', 'project'].forEach((kind, ki) => {
+    if (!groups[kind].length) return;
+    if (ki > 0 && cmdButtons.children.length) {
+      const sep = document.createElement('div');
+      sep.className = 'cmd-separator';
+      cmdButtons.appendChild(sep);
     }
-    cmdButtons.appendChild(btn);
+    groups[kind].forEach((cmd) => {
+      const btn = document.createElement('button');
+      btn.className = 'cmd-btn kind-' + kind;
+      btn.textContent = cmd.label;
+      btn.addEventListener('click', () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(cmd.text);
+          term.write(cmd.text);
+        }
+      });
+      if (cmd.text.endsWith('\n') && cmd.text.length > 1) {
+        btn.classList.add('send');
+      }
+      cmdButtons.appendChild(btn);
+    });
   });
 }
 

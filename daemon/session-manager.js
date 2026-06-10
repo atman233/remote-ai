@@ -14,24 +14,29 @@ function getSessionCwd(sessionName) {
 }
 
 const BUILTIN_CLAUDE_COMMANDS = [
-  { label: '/resume', text: '/resume\n' },
-  { label: '/new', text: '/new\n' },
-  { label: '/bug', text: '/bug\n' },
-  { label: '/clear', text: '/clear\n' },
-  { label: '/compact', text: '/compact\n' },
-  { label: '/init', text: '/init\n' },
-  { label: '/doctor', text: '/doctor\n' },
-  { label: '/status', text: '/status\n' },
-  { label: '/review', text: '/review\n' },
-  { label: '/setup', text: '/setup\n' },
+  { label: '/resume', text: '/resume', kind: 'builtin' },
+  { label: '/new', text: '/new', kind: 'builtin' },
+  { label: '/bug', text: '/bug', kind: 'builtin' },
+  { label: '/clear', text: '/clear', kind: 'builtin' },
+  { label: '/compact', text: '/compact', kind: 'builtin' },
+  { label: '/init', text: '/init', kind: 'builtin' },
+  { label: '/doctor', text: '/doctor', kind: 'builtin' },
+  { label: '/status', text: '/status', kind: 'builtin' },
+  { label: '/review', text: '/review', kind: 'builtin' },
+  { label: '/setup', text: '/setup', kind: 'builtin' },
 ];
 
 const TERMINAL_COMMANDS = [
-  { label: '启动 Claude', text: 'claude\n' },
-  { label: '确认 y', text: 'y\n' },
-  { label: '拒绝 n', text: 'n\n' },
-  { label: '中断', text: '\x03' },
-  { label: '清屏', text: '\x0c' },
+  { label: 'Esc', text: '\x1b', kind: 'terminal' },
+  { label: 'Tab', text: '\x09', kind: 'terminal' },
+  { label: '←Tab', text: '\x1b[Z', kind: 'terminal' },
+  { label: '↑', text: '\x1b[A', kind: 'terminal' },
+  { label: '↓', text: '\x1b[B', kind: 'terminal' },
+  { label: 'Enter', text: '\r', kind: 'terminal' },
+  { label: '确认 y', text: 'y\n', kind: 'terminal' },
+  { label: '拒绝 n', text: 'n\n', kind: 'terminal' },
+  { label: '中断', text: '\x03', kind: 'terminal' },
+  { label: '清屏', text: '\x0c', kind: 'terminal' },
 ];
 
 function discoverCommands(commandsDir) {
@@ -52,7 +57,7 @@ function discoverCommands(commandsDir) {
         walk(full, [...segments, name]);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         const label = '/' + [...segments, name].join(':');
-        commands.push({ label, text: label + '\n' });
+        commands.push({ label, text: label, kind: 'project' });
       }
     }
   }
@@ -64,9 +69,9 @@ function discoverCommands(commandsDir) {
 function loadCommands(cwd) {
   const projectCommands = discoverCommands(path.join(cwd, '.claude', 'commands'));
   return [
-    ...projectCommands,
-    ...BUILTIN_CLAUDE_COMMANDS,
     ...TERMINAL_COMMANDS,
+    ...BUILTIN_CLAUDE_COMMANDS,
+    ...projectCommands,
   ];
 }
 
