@@ -364,8 +364,10 @@ function initScrollButtons() {
   terminalContainer.appendChild(container);
 
   term.onScroll(() => {
-    const atBottom = term.buffer.active.viewportY >= term.buffer.active.baseY;
-    container.classList.toggle('hidden', atBottom);
+    const buf = term.buffer.active;
+    const atBottom = buf.viewportY >= buf.baseY;
+    const hasScrollback = buf.baseY > term.rows;
+    container.classList.toggle('hidden', !hasScrollback && atBottom);
   });
 }
 
