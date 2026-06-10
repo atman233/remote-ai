@@ -323,22 +323,6 @@ function initTerminal() {
   term.loadAddon(new WebLinksAddon());
 
   term.open(terminalContainer);
-
-  // Block alternate screen switching (DECSET 47/1047/1049) so tmux
-  // renders in the normal buffer, preserving scrollback for touch scrolling.
-  const isAltScreen = (params) => {
-    const code = params[0];
-    return code === 47 || code === 1047 || code === 1049;
-  };
-  term.parser.registerCsiHandler({prefix: '?', final: 'h'}, (params) => {
-    if (isAltScreen(params)) return true;
-    return false;
-  });
-  term.parser.registerCsiHandler({prefix: '?', final: 'l'}, (params) => {
-    if (isAltScreen(params)) return true;
-    return false;
-  });
-
   fitAddon.fit();
 
   const ro = new ResizeObserver(() => { fitAddon.fit(); });
@@ -372,24 +356,17 @@ function initScrollButtons() {
   downBtn.className = 'scroll-btn';
   downBtn.textContent = '▼';
 
-  function findViewport() {
-    return document.querySelector('.xterm-viewport')
-      || document.querySelector('.xterm-scrollable-element');
-  }
-
   upBtn.addEventListener('click', () => {
-    try {
-      term.scrollToTop();
-      const vp = findViewport();
-      if (vp) vp.scrollTop = 0;
-    } catch (e) { console.error('scroll up failed:', e); }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // Ctrl+B [ Ctrl+U = tmux prefix + enter copy mode + half-page up
+      ws.send('\x02[\x15');
+    }
   });
   downBtn.addEventListener('click', () => {
-    try {
-      term.scrollToBottom();
-      const vp = findViewport();
-      if (vp) vp.scrollTop = vp.scrollHeight;
-    } catch (e) { console.error('scroll down failed:', e); }
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      // Ctrl+B [ G q = enter copy mode + go to bottom + exit copy mode
+      ws.send('\x02[Gq');
+    }
   });
 
   container.appendChild(upBtn);
