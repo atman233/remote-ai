@@ -135,11 +135,11 @@ jobs:
           git tag ${{ steps.version.outputs.version }}
           git push origin ${{ steps.version.outputs.version }}
 
-      - name: Delete old test-latest release
+      - name: Delete old test-latest release and tag
         if: github.ref_name != 'main'
         run: |
           gh api repos/${{ github.repository }}/releases/tags/test-latest -X DELETE 2>/dev/null || true
-          git push origin --delete test-latest 2>/dev/null || true
+          gh api repos/${{ github.repository }}/git/refs/tags/test-latest -X DELETE 2>/dev/null || true
           sleep 3
         env:
           GH_TOKEN: ${{ github.token }}
