@@ -14,16 +14,16 @@ function getSessionCwd(sessionName) {
 }
 
 const BUILTIN_CLAUDE_COMMANDS = [
-  { label: '/resume', text: '/resume\n', kind: 'builtin' },
-  { label: '/new', text: '/new\n', kind: 'builtin' },
-  { label: '/bug', text: '/bug\n', kind: 'builtin' },
-  { label: '/clear', text: '/clear\n', kind: 'builtin' },
-  { label: '/compact', text: '/compact\n', kind: 'builtin' },
-  { label: '/init', text: '/init\n', kind: 'builtin' },
-  { label: '/doctor', text: '/doctor\n', kind: 'builtin' },
-  { label: '/status', text: '/status\n', kind: 'builtin' },
-  { label: '/review', text: '/review\n', kind: 'builtin' },
-  { label: '/setup', text: '/setup\n', kind: 'builtin' },
+  { label: '/resume', text: '/resume', kind: 'builtin' },
+  { label: '/new', text: '/new', kind: 'builtin' },
+  { label: '/bug', text: '/bug', kind: 'builtin' },
+  { label: '/clear', text: '/clear', kind: 'builtin' },
+  { label: '/compact', text: '/compact', kind: 'builtin' },
+  { label: '/init', text: '/init', kind: 'builtin' },
+  { label: '/doctor', text: '/doctor', kind: 'builtin' },
+  { label: '/status', text: '/status', kind: 'builtin' },
+  { label: '/review', text: '/review', kind: 'builtin' },
+  { label: '/setup', text: '/setup', kind: 'builtin' },
 ];
 
 const TERMINAL_COMMANDS = [
@@ -57,7 +57,7 @@ function discoverCommands(commandsDir) {
         walk(full, [...segments, name]);
       } else if (entry.isFile() && entry.name.endsWith('.md')) {
         const label = '/' + [...segments, name].join(':');
-        commands.push({ label, text: label + '\n', kind: 'project' });
+        commands.push({ label, text: label, kind: 'project' });
       }
     }
   }

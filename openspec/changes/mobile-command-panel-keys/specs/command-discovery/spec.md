@@ -10,6 +10,13 @@ The daemon SHALL include terminal interaction commands in every command response
 
 ## ADDED Requirements
 
+### Requirement: Slash commands use two-step execution
+Built-in and project slash commands SHALL NOT include a trailing newline in their `text` field. Clicking a slash command button SHALL type the command text into the terminal without executing it. The user SHALL use the Enter button or keyboard Enter to execute. Terminal commands `确认 y` and `拒绝 n` are exempt from this rule and SHALL auto-submit with `\n`.
+
+#### Scenario: Click slash command then Enter to execute
+- **WHEN** the user taps a `/opsx:apply` button then taps `Enter`
+- **THEN** the command text appears in the terminal and then executes correctly without an extra empty command
+
 ### Requirement: Built-in commands carry kind field
 All Claude Code built-in slash commands (`/resume`, `/new`, `/bug`, `/clear`, `/compact`, `/init`, `/doctor`, `/status`, `/review`, `/setup`) returned by the daemon SHALL include `kind: "builtin"`.
 
