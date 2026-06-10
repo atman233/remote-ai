@@ -49,6 +49,42 @@ body {
   cursor: pointer;
 }
 
+/* Update button */
+#update-btn {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  transition: background 0.2s, color 0.2s;
+  white-space: nowrap;
+  min-width: 42px;
+  text-align: center;
+}
+
+#update-btn.update-idle {
+  color: var(--fg2);
+  background: none;
+}
+
+#update-btn.update-available {
+  background: #1976d2;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+#update-btn.update-downloading {
+  background: #1976d2;
+  color: #fff;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+#update-btn.update-error {
+  color: var(--danger);
+  background: none;
+  font-size: 12px;
+}
+
 #session-info {
   flex: 1;
   display: flex;

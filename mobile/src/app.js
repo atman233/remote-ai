@@ -5,6 +5,13 @@ import { Preferences } from '@capacitor/preferences';
 import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar } from '@capacitor/status-bar';
 
+// ---- App Info ----
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
+const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
+const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
+const UPDATE_CACHE_KEY = 'update_check';
+const CACHE_TTL = 30 * 60 * 1000;
+
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
 let projects = [];
@@ -16,6 +23,8 @@ let reconnectTimer = null;
 let scrollbackBuf = '';
 let historyOverlay = null;
 let historyContent = null;
+let updateDownloadUrl = null;
+let updateListenersAdded = false;
 
 // ---- DOM refs ----
 const $ = (id) => document.getElementById(id);
@@ -24,6 +33,7 @@ const menuBtn = $('menu-btn');
 const sessionName = $('session-name');
 const connDot = $('connection-dot');
 const settingsBtn = $('settings-btn');
+const updateBtn = $('update-btn');
 const drawer = $('drawer');
 const drawerOverlay = $('drawer-overlay');
 const drawerClose = $('drawer-close');
@@ -65,11 +75,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   drawerOverlay.addEventListener('click', closeDrawer);
   drawerClose.addEventListener('click', closeDrawer);
   drawerRefresh.addEventListener('click', refreshProjects);
+  initVersionDisplay();
+  updateBtn.addEventListener('click', onUpdateClick);
   settingsBtn.addEventListener('click', () => showSettingsModal());
   settingsSave.addEventListener('click', saveSettings);
   settingsCancel.addEventListener('click', () => hideModal(settingsModal));
   statusRetry.addEventListener('click', reconnect);
   cmdPanelHandle.addEventListener('click', toggleCmdPanel);
+
+  checkForUpdate();
 
   if (settings.host && settings.pass) {
     await refreshProjects();
@@ -126,6 +140,130 @@ async function saveSettings() {
   }
   hideModal(settingsModal);
   await refreshProjects();
+}
+
+// ---- Update Check ----
+function initVersionDisplay() {
+  updateBtn.textContent = 'v' + APP_VERSION;
+  updateBtn.className = 'update-idle';
+}
+
+async function checkForUpdate() {
+  const cache = readUpdateCache();
+  if (cache) {
+    applyUpdateResult(cache);
+    return;
+  }
+
+  try {
+    const endpoint = APP_ENV === 'production'
+      ? `${GITHUB_API}/releases/latest`
+      : `${GITHUB_API}/releases/tags/test-latest`;
+
+    const resp = await fetch(endpoint);
+    if (!resp.ok) return;
+    const release = await resp.json();
+
+    const remoteVersion = release.tag_name.replace(/^v/, '');
+    const isNewer = compareVersions(remoteVersion, APP_VERSION) > 0;
+    let downloadUrl = null;
+
+    if (isNewer && release.assets) {
+      const apk = release.assets.find(a => a.name.endsWith('.apk'));
+      if (apk) downloadUrl = apk.browser_download_url;
+    }
+
+    const result = { isNewer, remoteVersion, downloadUrl, timestamp: Date.now() };
+    writeUpdateCache(result);
+    applyUpdateResult(result);
+  } catch {
+    // Silently ignore — no update UI shown on error
+  }
+}
+
+function readUpdateCache() {
+  try {
+    const raw = localStorage.getItem(UPDATE_CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (Date.now() - data.timestamp < CACHE_TTL) return data;
+  } catch {}
+  return null;
+}
+
+function writeUpdateCache(result) {
+  try { localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify(result)); } catch {}
+}
+
+function applyUpdateResult(result) {
+  if (result.isNewer && result.downloadUrl) {
+    updateDownloadUrl = result.downloadUrl;
+    updateBtn.textContent = '更新';
+    updateBtn.className = 'update-available';
+  }
+}
+
+function compareVersions(a, b) {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) > (pb[i] || 0)) return 1;
+    if ((pa[i] || 0) < (pb[i] || 0)) return -1;
+  }
+  return 0;
+}
+
+function onUpdateClick() {
+  if (updateBtn.classList.contains('update-available') ||
+      updateBtn.classList.contains('update-error')) {
+    startUpdate();
+  }
+}
+
+async function startUpdate() {
+  if (!updateDownloadUrl) return;
+
+  updateBtn.textContent = '0%';
+  updateBtn.className = 'update-downloading';
+
+  // Browser dev fallback
+  try {
+    const core = await import('@capacitor/core');
+    if (!core.Capacitor.isNativePlatform()) {
+      window.open(updateDownloadUrl, '_blank');
+      updateBtn.textContent = 'v' + APP_VERSION;
+      updateBtn.className = 'update-idle';
+      return;
+    }
+
+    const UpdateManager = core.registerPlugin('UpdateManager');
+
+    if (!updateListenersAdded) {
+      updateListenersAdded = true;
+      UpdateManager.addListener('downloadProgress', (data) => {
+        updateBtn.textContent = data.percent + '%';
+      });
+      UpdateManager.addListener('downloadComplete', () => {
+        updateBtn.textContent = 'v' + APP_VERSION;
+        updateBtn.className = 'update-idle';
+        updateDownloadUrl = null;
+      });
+      UpdateManager.addListener('downloadError', (data) => {
+        console.error('Download error:', data.message);
+        updateBtn.textContent = '重试';
+        updateBtn.className = 'update-error';
+      });
+    }
+
+    await UpdateManager.downloadAndInstall({
+      url: updateDownloadUrl,
+      version: APP_VERSION
+    });
+  } catch (e) {
+    console.error('Update failed:', e);
+    updateBtn.textContent = '重试';
+    updateBtn.className = 'update-error';
+  }
 }
 
 // ---- Auth header helper ----
