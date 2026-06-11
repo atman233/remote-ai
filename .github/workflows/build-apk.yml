@@ -60,13 +60,16 @@ jobs:
         with:
           packages: 'platforms;android-36 build-tools;36.0.0'
 
-      - name: Set default server URL
+      - name: Set build-time environment variables
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
             echo "VITE_DEFAULT_HOST=easyai.wuya.asia" >> $GITHUB_ENV
+            echo "VITE_APP_ENV=production" >> $GITHUB_ENV
           else
             echo "VITE_DEFAULT_HOST=easyaitest.wuya.asia" >> $GITHUB_ENV
+            echo "VITE_APP_ENV=test" >> $GITHUB_ENV
           fi
+          echo "VITE_APP_VERSION=${{ steps.version.outputs.version_raw }}" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: npm ci
@@ -132,11 +135,15 @@ jobs:
           git tag ${{ steps.version.outputs.version }}
           git push origin ${{ steps.version.outputs.version }}
 
-      - name: Delete old test-latest release
+      - name: Delete old test-latest release and tag
         if: github.ref_name != 'main'
         run: |
-          gh release delete test-latest --yes 2>/dev/null || true
-          git push origin --delete test-latest 2>/dev/null || true
+          gh api repos/${{ github.repository }}/releases --jq '.[] | select(.tag_name == "test-latest") | .id' | while read id; do
+            echo "Deleting release $id"
+            gh api repos/${{ github.repository }}/releases/$id -X DELETE
+          done
+          gh api repos/${{ github.repository }}/git/refs/tags/test-latest -X DELETE 2>/dev/null || true
+          sleep 3
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -15,6 +15,7 @@
       <span id="session-name">未连接</span>
       <span id="connection-dot" class="dot-offline"></span>
     </div>
+    <button id="update-btn" class="update-idle" aria-label="检查更新"></button>
     <button id="settings-btn" aria-label="设置">&#9881;</button>
   </div>
 
@@ -33,8 +34,17 @@
     </div>
   </div>
 
+  <!-- Home Screen -->
+  <div id="home-screen">
+    <div id="home-content">
+      <h2 id="home-title">CC Mobile</h2>
+      <div id="recent-list"></div>
+      <button id="home-new-btn">+ 新建项目</button>
+    </div>
+  </div>
+
   <!-- Terminal -->
-  <div id="terminal-container"></div>
+  <div id="terminal-container" class="hidden"></div>
 
   <!-- Status Overlay -->
   <div id="status-overlay" class="hidden">
@@ -65,7 +75,21 @@
     </div>
   </div>
 
+  <!-- New Project Modal -->
+  <div id="new-project-modal" class="modal hidden">
+    <div class="modal-content">
+      <h3>新建项目</h3>
+      <label>项目名称</label>
+      <input type="text" id="new-proj-name" placeholder="my-project" />
+      <label>项目路径</label>
+      <input type="text" id="new-proj-path" placeholder="/home/user/projects/my-project" />
+      <div id="new-session-buttons">
+        <button id="new-proj-create">创建</button>
+        <button id="new-proj-cancel">取消</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/src/app.js"></script>
 </body>
 </html>
-
