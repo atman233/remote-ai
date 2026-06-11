@@ -7,10 +7,11 @@ import { StatusBar } from '@capacitor/status-bar';
 
 // ---- App Info ----
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
+const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
-const UPDATE_CACHE_KEY = 'update_check';
-const CACHE_TTL = 30 * 60 * 1000;
+const UPDATE_CACHE_KEY = 'update_check_v2';
+const CACHE_TTL = 5 * 60 * 1000;
 
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
@@ -178,14 +179,30 @@ async function checkForUpdate() {
     if (!resp.ok) return;
     const release = await resp.json();
 
-    const remoteVersion = release.tag_name.replace(/^v/, '');
-    const isNewer = compareVersions(remoteVersion, APP_VERSION) > 0;
     let downloadUrl = null;
+    let remoteVersion = null;
+    let remoteSha = null;
 
-    if (isNewer && release.assets) {
+    if (release.assets) {
       const apk = release.assets.find(a => a.name.endsWith('.apk'));
-      if (apk) downloadUrl = apk.browser_download_url;
+      if (apk) {
+        downloadUrl = apk.browser_download_url;
+        const vMatch = apk.name.match(/v(\d+\.\d+\.\d+)/);
+        if (vMatch) remoteVersion = vMatch[1];
+      }
     }
+
+    // Extract commit SHA from release body (e.g., "Commit: abc1234")
+    const shaMatch = release.body && release.body.match(/Commit:\s*([a-f0-9]+)/i);
+    if (shaMatch) remoteSha = shaMatch[1].slice(0, 7);
+
+    // Fallback to tag_name for version display
+    if (!remoteVersion) {
+      remoteVersion = release.tag_name.replace(/^v/, '');
+    }
+
+    // Update available if the remote build SHA differs from ours
+    const isNewer = !!(remoteSha && remoteSha !== APP_BUILD_SHA);
 
     const result = { isNewer, remoteVersion, downloadUrl, timestamp: Date.now() };
     writeUpdateCache(result);
@@ -462,6 +479,8 @@ async function deleteProject(name) {
     }
 
     await refreshProjects();
+    showStatus('删除成功', false);
+    setTimeout(hideStatus, 1500);
   } catch (e) {
     alert('删除失败: ' + e.message);
   }
