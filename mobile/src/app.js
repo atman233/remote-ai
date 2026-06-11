@@ -178,14 +178,25 @@ async function checkForUpdate() {
     if (!resp.ok) return;
     const release = await resp.json();
 
-    const remoteVersion = release.tag_name.replace(/^v/, '');
-    const isNewer = compareVersions(remoteVersion, APP_VERSION) > 0;
     let downloadUrl = null;
+    let remoteVersion = null;
 
-    if (isNewer && release.assets) {
+    if (release.assets) {
       const apk = release.assets.find(a => a.name.endsWith('.apk'));
-      if (apk) downloadUrl = apk.browser_download_url;
+      if (apk) {
+        downloadUrl = apk.browser_download_url;
+        // Extract version from APK filename (e.g., "ai-remote-test-v0.0.4.apk" -> "0.0.4")
+        const match = apk.name.match(/v(\d+\.\d+\.\d+)/);
+        if (match) remoteVersion = match[1];
+      }
     }
+
+    // Fallback to tag_name for production (e.g., "v0.0.1" -> "0.0.1")
+    if (!remoteVersion) {
+      remoteVersion = release.tag_name.replace(/^v/, '');
+    }
+
+    const isNewer = compareVersions(remoteVersion, APP_VERSION) > 0;
 
     const result = { isNewer, remoteVersion, downloadUrl, timestamp: Date.now() };
     writeUpdateCache(result);
