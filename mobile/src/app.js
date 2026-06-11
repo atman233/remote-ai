@@ -325,12 +325,23 @@ function renderProjectList() {
     div.innerHTML = `
       <span class="name">${esc(p.name)}</span>
       ${p.hasClaudeCode ? '<span class="badge">CC</span>' : ''}
+      <button class="delete-btn" data-name="${esc(p.name)}" aria-label="删除">×</button>
     `;
-    div.addEventListener('click', () => {
+    div.addEventListener('click', (e) => {
+      if (e.target.closest('.delete-btn')) return;
       startProject(p);
       closeDrawer();
     });
     sessionList.appendChild(div);
+  });
+
+  // Attach delete handlers to drawer items
+  sessionList.querySelectorAll('.delete-btn').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeDrawer();
+      deleteProject(btn.dataset.name);
+    });
   });
 }
 
@@ -396,14 +407,64 @@ function renderHomeScreen() {
       <div class="card-header">
         <span class="card-name">${esc(p.name)}</span>
         ${p.hasClaudeCode ? '<span class="card-badge">CC</span>' : ''}
+        <button class="card-delete" data-name="${esc(p.name)}" aria-label="删除">×</button>
       </div>
       <span class="card-path">${esc(p.path)}</span>
     `;
-    card.addEventListener('click', () => {
+    card.addEventListener('click', (e) => {
+      // Don't start if delete button was clicked
+      if (e.target.closest('.card-delete')) return;
       startProject(p);
     });
     recentList.appendChild(card);
   });
+
+  // Attach delete handlers
+  recentList.querySelectorAll('.card-delete').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteProject(btn.dataset.name);
+    });
+  });
+}
+
+// ---- Delete Project ----
+async function deleteProject(name) {
+  if (!confirm(`确定删除项目 "${name}"？\n\n这将删除配置和对应的 tmux 会话。`)) return;
+
+  try {
+    const resp = await fetch(`${baseUrl()}/api/projects/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      alert(data.error || '删除失败');
+      return;
+    }
+
+    // If this was the active project, disconnect
+    if (activeProject && activeProject.name === name) {
+      if (ws) { ws.close(1000); ws = null; }
+      activeProject = null;
+      sessionName.textContent = '未连接';
+      setStatus('offline');
+      showHomeScreen();
+    }
+
+    // Remove from recent
+    recentProjects = recentProjects.filter((n) => n !== name);
+    try {
+      const { Preferences } = await import('@capacitor/preferences');
+      await Preferences.set({ key: RECENT_KEY, value: JSON.stringify(recentProjects) });
+    } catch {
+      localStorage.setItem(RECENT_KEY, JSON.stringify(recentProjects));
+    }
+
+    await refreshProjects();
+  } catch (e) {
+    alert('删除失败: ' + e.message);
+  }
 }
 
 // ---- New Project ----

@@ -124,9 +124,10 @@ app.post('/api/projects', (req, res) => {
   const trimmedPath = projectPath.trim();
 
   try {
-    fs.accessSync(trimmedPath, fs.constants.R_OK);
-  } catch {
-    return res.status(400).json({ error: '项目路径不存在或不可读: ' + trimmedPath });
+    fs.mkdirSync(trimmedPath, { recursive: true });
+    log(`Created directory: ${trimmedPath}`);
+  } catch (e) {
+    return res.status(400).json({ error: '无法创建项目目录: ' + e.message });
   }
 
   let config;
@@ -156,6 +157,48 @@ app.post('/api/projects', (req, res) => {
     log(RED(`Failed to write projects.json: ${e.message}`));
     res.status(500).json({ error: '写入项目配置失败' });
   }
+});
+
+app.delete('/api/projects/:name', (req, res) => {
+  const { name } = req.params;
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  } catch {
+    return res.status(404).json({ error: '无项目配置' });
+  }
+
+  if (!config.projects || !Array.isArray(config.projects)) {
+    return res.status(404).json({ error: '无项目配置' });
+  }
+
+  const idx = config.projects.findIndex((p) => p.name === name);
+  if (idx === -1) {
+    return res.status(404).json({ error: '项目不存在: ' + name });
+  }
+
+  config.projects.splice(idx, 1);
+
+  try {
+    const tmpPath = CONFIG_PATH + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, CONFIG_PATH);
+  } catch (e) {
+    log(RED(`Failed to write projects.json: ${e.message}`));
+    return res.status(500).json({ error: '写入项目配置失败' });
+  }
+
+  // Kill tmux session if it exists
+  try {
+    execSync(`tmux kill-session -t '${name}' 2>/dev/null`, { timeout: 3000 });
+    log(`Killed tmux session: ${name}`);
+  } catch {
+    // Session may not exist, that's fine
+  }
+
+  log(GREEN(`Removed project: ${name}`));
+  res.json({ success: true });
 });
 
 app.post('/api/daemon/restart', (_req, res) => {
