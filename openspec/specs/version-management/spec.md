@@ -31,7 +31,7 @@ Each successful production build on the `main` branch SHALL create a git tag mat
 
 ### Requirement: Version is injected into build artifacts
 
-The computed version SHALL be injected into `package.json` (version field), `build.gradle` (versionCode and versionName), and the APK output filename at build time.
+The computed version SHALL be injected into `package.json` (version field), `build.gradle` (versionCode and versionName), the APK output filename, and the web frontend (via `VITE_APP_VERSION` environment variable) at build time.
 
 #### Scenario: Version injected into package.json
 
@@ -50,6 +50,12 @@ The computed version SHALL be injected into `package.json` (version field), `bui
 - **GIVEN** the CI determines version `0.0.3` and the build is for production
 - **WHEN** the APK is assembled
 - **THEN** the output APK is named `ai-remote-v0.0.3.apk`
+
+#### Scenario: Version injected into web frontend
+
+- **GIVEN** the CI determines version `0.0.3`
+- **WHEN** the Vite build runs
+- **THEN** the built JavaScript has `VITE_APP_VERSION` set to `0.0.3`
 
 ### Requirement: Test builds use same version scheme without creating tags
 
