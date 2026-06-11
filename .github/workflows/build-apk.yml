@@ -70,6 +70,7 @@ jobs:
             echo "VITE_APP_ENV=test" >> $GITHUB_ENV
           fi
           echo "VITE_APP_VERSION=${{ steps.version.outputs.version_raw }}" >> $GITHUB_ENV
+          echo "VITE_APP_BUILD_SHA=${GITHUB_SHA:0:7}" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: npm ci
