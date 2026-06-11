@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const express = require('express');
 const expressWs = require('express-ws');
 const pty = require('node-pty');
@@ -76,7 +78,7 @@ app.post('/api/projects/:name/start', (req, res) => {
   }
 
   try {
-    require('fs').accessSync(project.path, require('fs').constants.R_OK);
+    fs.accessSync(project.path, fs.constants.R_OK);
   } catch {
     return res.status(400).json({ error: '项目路径不存在: ' + project.path });
   }
@@ -104,6 +106,64 @@ app.post('/api/projects/:name/start', (req, res) => {
     log(RED(`Failed to start project session: ${name} ${e.message}`));
     res.status(500).json({ error: '启动项目会话失败: ' + e.message });
   }
+});
+
+const CONFIG_PATH = path.join(__dirname, 'projects.json');
+
+app.post('/api/projects', (req, res) => {
+  const { name, path: projectPath } = req.body || {};
+
+  if (!name || typeof name !== 'string' || !/^[a-zA-Z0-9_\-.]+$/.test(name.trim())) {
+    return res.status(400).json({ error: '项目名称无效，仅允许字母、数字、下划线、连字符和点' });
+  }
+  if (!projectPath || typeof projectPath !== 'string') {
+    return res.status(400).json({ error: '项目路径不能为空' });
+  }
+
+  const trimmedName = name.trim();
+  const trimmedPath = projectPath.trim();
+
+  try {
+    fs.accessSync(trimmedPath, fs.constants.R_OK);
+  } catch {
+    return res.status(400).json({ error: '项目路径不存在或不可读: ' + trimmedPath });
+  }
+
+  let config;
+  try {
+    config = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
+  } catch {
+    config = { projects: [] };
+  }
+
+  if (!config.projects || !Array.isArray(config.projects)) {
+    config.projects = [];
+  }
+
+  if (config.projects.some((p) => p.name === trimmedName)) {
+    return res.status(409).json({ error: '项目名称已存在: ' + trimmedName });
+  }
+
+  config.projects.push({ name: trimmedName, path: trimmedPath });
+
+  try {
+    const tmpPath = CONFIG_PATH + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(config, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, CONFIG_PATH);
+    log(GREEN(`Added project: ${trimmedName} at ${trimmedPath}`));
+    res.json({ success: true, project: { name: trimmedName, path: trimmedPath } });
+  } catch (e) {
+    log(RED(`Failed to write projects.json: ${e.message}`));
+    res.status(500).json({ error: '写入项目配置失败' });
+  }
+});
+
+app.post('/api/daemon/restart', (_req, res) => {
+  res.json({ success: true, message: 'restarting' });
+  setTimeout(() => {
+    log(YELLOW('Daemon restarting...'));
+    process.exit(0);
+  }, 100);
 });
 
 app.get('/api/sessions/:id/commands', (req, res) => {

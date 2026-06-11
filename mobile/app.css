@@ -223,6 +223,130 @@ body {
   cursor: pointer;
 }
 
+/* ---- Home Screen ---- */
+#home-screen {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 24px 16px;
+}
+
+#home-screen.hidden { display: none; }
+
+#home-content {
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#home-title {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--fg);
+  text-align: center;
+  margin-bottom: 8px;
+}
+
+#recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.project-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 16px;
+  border-radius: 10px;
+  background: var(--bg2);
+  border: 1px solid var(--bg3);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0;
+  animation: cardFadeIn 0.3s ease forwards;
+}
+
+.project-card:nth-child(1) { animation-delay: 0.05s; }
+.project-card:nth-child(2) { animation-delay: 0.12s; }
+.project-card:nth-child(3) { animation-delay: 0.19s; }
+
+.project-card:active {
+  background: var(--bg3);
+  transform: scale(0.98);
+}
+
+.project-card .card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.project-card .card-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--fg);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card .card-badge {
+  font-size: 10px;
+  background: var(--accent);
+  color: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.project-card .card-path {
+  font-size: 12px;
+  color: var(--fg2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@keyframes cardFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.home-empty {
+  text-align: center;
+  color: var(--fg2);
+  padding: 32px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+#home-new-btn {
+  width: 100%;
+  padding: 14px;
+  border: 2px dashed var(--bg3);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--fg2);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+
+#home-new-btn:active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(79,195,247,0.05);
+}
+
 /* ---- Terminal ---- */
 #terminal-container {
   flex: 1;
@@ -230,6 +354,8 @@ body {
   padding: 4px;
   position: relative;
 }
+
+#terminal-container.hidden { display: none; }
 
 .xterm { height: 100%; padding: 4px; }
 .xterm .xterm-viewport { scrollbar-width: none; }
@@ -275,9 +401,12 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  transition: max-height 0.25s ease;
 }
 
-#cmd-panel.collapsed #cmd-buttons { display: none; }
+#cmd-panel.collapsed {
+  max-height: 32px;
+}
 
 #cmd-panel-handle {
   text-align: center;
@@ -295,6 +424,13 @@ body {
   gap: 6px;
   padding: 8px 12px 12px;
   overflow-y: auto;
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+
+#cmd-panel.collapsed #cmd-buttons {
+  opacity: 0;
+  pointer-events: none;
 }
 
 .cmd-btn {
@@ -387,12 +523,12 @@ body {
   cursor: pointer;
 }
 
-#settings-save, #new-session-create {
+#settings-save, #new-proj-create {
   background: var(--accent);
   color: var(--bg);
 }
 
-#settings-cancel, #new-session-cancel {
+#settings-cancel, #new-proj-cancel {
   background: var(--bg3);
   color: var(--fg);
 }

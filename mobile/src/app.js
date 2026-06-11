@@ -15,6 +15,7 @@ const CACHE_TTL = 30 * 60 * 1000;
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
 let projects = [];
+let recentProjects = [];
 let activeProject = null;
 let ws = null;
 let term = null;
@@ -25,6 +26,7 @@ let historyOverlay = null;
 let historyContent = null;
 let updateDownloadUrl = null;
 let updateListenersAdded = false;
+const RECENT_KEY = 'recent_projects';
 
 // ---- DOM refs ----
 const $ = (id) => document.getElementById(id);
@@ -46,6 +48,14 @@ const statusRetry = $('status-retry');
 const cmdPanel = $('cmd-panel');
 const cmdPanelHandle = $('cmd-panel-handle');
 const cmdButtons = $('cmd-buttons');
+const homeScreen = $('home-screen');
+const recentList = $('recent-list');
+const homeNewBtn = $('home-new-btn');
+const newProjectModal = $('new-project-modal');
+const newProjName = $('new-proj-name');
+const newProjPath = $('new-proj-path');
+const newProjCreate = $('new-proj-create');
+const newProjCancel = $('new-proj-cancel');
 const settingsModal = $('settings-modal');
 const settingHost = $('setting-host');
 const settingUser = $('setting-user');
@@ -82,7 +92,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   settingsCancel.addEventListener('click', () => hideModal(settingsModal));
   statusRetry.addEventListener('click', reconnect);
   cmdPanelHandle.addEventListener('click', toggleCmdPanel);
+  homeNewBtn.addEventListener('click', showNewProjectModal);
+  newProjCreate.addEventListener('click', createProject);
+  newProjCancel.addEventListener('click', () => hideModal(newProjectModal));
 
+  loadRecentProjects();
   checkForUpdate();
 
   if (settings.host && settings.pass) {
@@ -290,10 +304,12 @@ async function refreshProjects() {
     const data = await resp.json();
     projects = data.projects || [];
     renderProjectList();
+    renderHomeScreen();
   } catch (e) {
     console.error('Failed to fetch projects:', e);
     projects = [];
     renderProjectList();
+    renderHomeScreen();
   }
 }
 
@@ -318,6 +334,146 @@ function renderProjectList() {
   });
 }
 
+// ---- Recent Projects ----
+function loadRecentProjects() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    recentProjects = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(recentProjects)) recentProjects = [];
+  } catch {
+    recentProjects = [];
+  }
+}
+
+async function saveRecentProject(name) {
+  loadRecentProjects();
+  recentProjects = recentProjects.filter((n) => n !== name);
+  recentProjects.unshift(name);
+  if (recentProjects.length > 5) recentProjects = recentProjects.slice(0, 5);
+  try {
+    const { Preferences } = await import('@capacitor/preferences');
+    await Preferences.set({ key: RECENT_KEY, value: JSON.stringify(recentProjects) });
+  } catch {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(recentProjects));
+  }
+}
+
+// ---- Home Screen ----
+function showHomeScreen() {
+  homeScreen.classList.remove('hidden');
+  terminalContainer.classList.add('hidden');
+}
+
+function hideHomeScreen() {
+  homeScreen.classList.add('hidden');
+  terminalContainer.classList.remove('hidden');
+}
+
+function renderHomeScreen() {
+  recentList.innerHTML = '';
+
+  // Build display list: recent projects that exist in daemon config, plus any non-recent ones
+  const recentSet = new Set(recentProjects);
+  const recentOrdered = recentProjects
+    .filter((name) => projects.some((p) => p.name === name))
+    .slice(0, 3);
+  const remaining = projects.filter((p) => !recentSet.has(p.name));
+
+  const display = [...recentOrdered, ...remaining].slice(0, 3).map((name) => {
+    if (typeof name === 'string') return projects.find((p) => p.name === name);
+    return name;
+  }).filter(Boolean);
+
+  if (display.length === 0) {
+    recentList.innerHTML = '<div class="home-empty">暂无项目<br>点击下方按钮创建第一个项目</div>';
+    return;
+  }
+
+  display.forEach((p) => {
+    const card = document.createElement('div');
+    card.className = 'project-card';
+    card.innerHTML = `
+      <div class="card-header">
+        <span class="card-name">${esc(p.name)}</span>
+        ${p.hasClaudeCode ? '<span class="card-badge">CC</span>' : ''}
+      </div>
+      <span class="card-path">${esc(p.path)}</span>
+    `;
+    card.addEventListener('click', () => {
+      startProject(p);
+    });
+    recentList.appendChild(card);
+  });
+}
+
+// ---- New Project ----
+function showNewProjectModal() {
+  newProjName.value = '';
+  newProjPath.value = '';
+  newProjCreate.textContent = '创建';
+  newProjCreate.disabled = false;
+  showModal(newProjectModal);
+}
+
+async function createProject() {
+  const name = newProjName.value.trim();
+  const projectPath = newProjPath.value.trim();
+
+  if (!name) {
+    alert('请输入项目名称');
+    return;
+  }
+  if (!projectPath) {
+    alert('请输入项目路径');
+    return;
+  }
+
+  newProjCreate.textContent = '创建中...';
+  newProjCreate.disabled = true;
+
+  try {
+    const resp = await fetch(`${baseUrl()}/api/projects`, {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({ name, path: projectPath }),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      alert(data.error || '创建失败');
+      newProjCreate.textContent = '创建';
+      newProjCreate.disabled = false;
+      return;
+    }
+
+    // Restart daemon
+    try {
+      await fetch(`${baseUrl()}/api/daemon/restart`, {
+        method: 'POST',
+        headers: authHeaders(),
+      });
+    } catch {
+      // Daemon restart may kill the connection before response
+    }
+
+    hideModal(newProjectModal);
+    showStatus('守护进程重启中...', false);
+
+    // Wait for daemon to come back
+    await new Promise((r) => setTimeout(r, 2500));
+
+    // Save as recent
+    await saveRecentProject(name);
+
+    // Refresh project list
+    await refreshProjects();
+    hideStatus();
+  } catch (e) {
+    alert('创建失败: ' + e.message);
+    newProjCreate.textContent = '创建';
+    newProjCreate.disabled = false;
+  }
+}
+
 // ---- Connection ----
 async function startProject(project) {
   if (ws) {
@@ -325,6 +481,7 @@ async function startProject(project) {
     ws = null;
   }
 
+  hideHomeScreen();
   activeProject = project;
   sessionName.textContent = project.name;
   setStatus('offline');
@@ -379,6 +536,7 @@ function connectWS(sessionId) {
     hideStatus();
     setStatus('online');
     scrollbackBuf = '';
+    saveRecentProject(sessionId);
     if (term) {
       term.clear();
       term.focus();
@@ -602,7 +760,7 @@ function renderCommands(commands) {
 
 function toggleCmdPanel() {
   cmdPanel.classList.toggle('collapsed');
-  setTimeout(() => term && fitAddon && fitAddon.fit(), 150);
+  setTimeout(() => term && fitAddon && fitAddon.fit(), 300);
 }
 
 // ---- Drawer ----
