@@ -462,6 +462,8 @@ async function deleteProject(name) {
     }
 
     await refreshProjects();
+    showStatus('删除成功', false);
+    setTimeout(hideStatus, 1500);
   } catch (e) {
     alert('删除失败: ' + e.message);
   }
