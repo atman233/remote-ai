@@ -130,7 +130,6 @@ jobs:
           make_latest: true
 
       - name: Create and push version tag
-        if: github.ref_name == 'main'
         run: |
           git tag ${{ steps.version.outputs.version }}
           git push origin ${{ steps.version.outputs.version }}
