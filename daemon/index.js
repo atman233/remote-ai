@@ -215,6 +215,26 @@ app.get('/api/sessions/:id/commands', (req, res) => {
   res.json({ commands });
 });
 
+app.get('/api/sessions/:id/history', (req, res) => {
+  const sessionId = req.params.id;
+  const lines = Math.min(Math.max(parseInt(req.query.lines) || 1000, 1), 2000);
+
+  if (!sessionExists(sessionId)) {
+    return res.status(404).json({ error: '会话不存在: ' + sessionId });
+  }
+
+  try {
+    const text = execSync(
+      `tmux capture-pane -p -S -${lines} -t '${sessionId}'`,
+      { encoding: 'utf-8', timeout: 3000 }
+    );
+    res.json({ text });
+  } catch (e) {
+    log(RED(`capture-pane failed for ${sessionId}: ${e.message}`));
+    res.status(500).json({ error: '获取历史失败' });
+  }
+});
+
 // ---- WebSocket ----
 
 app.ws('/api/sessions/:id/pty', (ws, req) => {

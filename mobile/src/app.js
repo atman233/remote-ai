@@ -22,7 +22,6 @@ let ws = null;
 let term = null;
 let fitAddon = null;
 let reconnectTimer = null;
-let scrollbackBuf = '';
 let historyOverlay = null;
 let historyContent = null;
 let updateDownloadUrl = null;
@@ -615,7 +614,6 @@ function connectWS(sessionId) {
   ws.onopen = () => {
     hideStatus();
     setStatus('online');
-    scrollbackBuf = '';
     saveRecentProject(sessionId);
     if (term) {
       term.clear();
@@ -634,22 +632,6 @@ function connectWS(sessionId) {
       } else if (typeof evt.data === 'string') {
         raw = evt.data;
         term.write(raw);
-      }
-      if (raw) {
-        if (typeof raw === 'string') {
-          scrollbackBuf += raw;
-        } else {
-          scrollbackBuf += new TextDecoder().decode(raw);
-        }
-      }
-      // Trim buffer to ~100K chars
-      if (scrollbackBuf.length > 100000) {
-        scrollbackBuf = scrollbackBuf.slice(-80000);
-      }
-      // Update overlay if visible
-      if (historyOverlay && historyOverlay.classList.contains('active')) {
-        historyContent.textContent = stripAnsi(scrollbackBuf);
-        historyContent.scrollTop = historyContent.scrollHeight;
       }
     } catch {
       // ignore write errors
@@ -785,23 +767,28 @@ function initScrollButtons() {
   document.body.appendChild(container);
 }
 
-function showHistory() {
-  if (!historyOverlay || !historyContent) return;
-  historyContent.textContent = stripAnsi(scrollbackBuf);
-  // Scroll to show content just above the live viewport
-  historyContent.scrollTop = Math.max(0, historyContent.scrollHeight - historyContent.clientHeight - 300);
+async function showHistory() {
+  if (!historyOverlay || !historyContent || !activeProject) return;
+
+  historyContent.textContent = '加载中...';
   historyOverlay.classList.add('active');
+
+  try {
+    const resp = await fetch(
+      `${baseUrl()}/api/sessions/${encodeURIComponent(activeProject.name)}/history?lines=1000`,
+      { headers: authHeaders() }
+    );
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    historyContent.textContent = data.text;
+    historyContent.scrollTop = Math.max(0, historyContent.scrollHeight - historyContent.clientHeight - 300);
+  } catch {
+    historyContent.textContent = '加载失败，请重试';
+  }
 }
 
 function hideHistory() {
   if (historyOverlay) historyOverlay.classList.remove('active');
-}
-
-function stripAnsi(text) {
-  return text
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
-    .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
 }
 
 // ---- Command Panel ----
