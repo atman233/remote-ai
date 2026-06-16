@@ -235,6 +235,56 @@ app.get('/api/sessions/:id/history', (req, res) => {
   }
 });
 
+app.get('/api/update/check', async (req, res) => {
+  const env = req.query.env || 'test';
+  const currentSha = req.query.sha || '';
+  const tag = env === 'production' ? 'latest' : 'test-latest';
+
+  const token = process.env.GITHUB_TOKEN || '';
+  if (!token) {
+    return res.json({ isNewer: false });
+  }
+
+  try {
+    const url = `https://api.github.com/repos/atman233/remote-ai/releases/tags/${tag}`;
+    const ghResp = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/vnd.github+json',
+      },
+    });
+    if (!ghResp.ok) return res.json({ isNewer: false });
+
+    const release = await ghResp.json();
+    let downloadUrl = null;
+    let remoteVersion = null;
+    let remoteSha = null;
+
+    if (release.assets) {
+      const apk = release.assets.find(a => a.name.endsWith('.apk'));
+      if (apk) {
+        downloadUrl = apk.browser_download_url;
+        const vMatch = apk.name.match(/v(\d+\.\d+\.\d+)/);
+        if (vMatch) remoteVersion = vMatch[1];
+      }
+    }
+
+    const shaMatch = release.body && release.body.match(/Commit:\s*([a-f0-9]+)/i);
+    if (shaMatch) remoteSha = shaMatch[1].slice(0, 7);
+
+    if (!remoteVersion) {
+      remoteVersion = release.tag_name.replace(/^v/, '');
+    }
+
+    const isNewer = !!(remoteSha && remoteSha !== currentSha);
+
+    res.json({ isNewer, remoteVersion: remoteVersion || '', downloadUrl: downloadUrl || '' });
+  } catch (e) {
+    log(RED(`Update check failed: ${e.message}`));
+    res.json({ isNewer: false });
+  }
+});
+
 // ---- WebSocket ----
 
 app.ws('/api/sessions/:id/pty', (ws, req) => {

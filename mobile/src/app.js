@@ -9,7 +9,6 @@ import { StatusBar } from '@capacitor/status-bar';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
-const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
 const UPDATE_CACHE_KEY = 'update_check_v2';
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -170,42 +169,13 @@ async function checkForUpdate() {
   }
 
   try {
-    const endpoint = APP_ENV === 'production'
-      ? `${GITHUB_API}/releases/latest`
-      : `${GITHUB_API}/releases/tags/test-latest`;
-
-    const resp = await fetch(endpoint);
+    const endpoint = `${baseUrl()}/api/update/check?env=${APP_ENV}&sha=${APP_BUILD_SHA}`;
+    const resp = await fetch(endpoint, { headers: authHeaders() });
     if (!resp.ok) return;
-    const release = await resp.json();
-
-    let downloadUrl = null;
-    let remoteVersion = null;
-    let remoteSha = null;
-
-    if (release.assets) {
-      const apk = release.assets.find(a => a.name.endsWith('.apk'));
-      if (apk) {
-        downloadUrl = apk.browser_download_url;
-        const vMatch = apk.name.match(/v(\d+\.\d+\.\d+)/);
-        if (vMatch) remoteVersion = vMatch[1];
-      }
-    }
-
-    // Extract commit SHA from release body (e.g., "Commit: abc1234")
-    const shaMatch = release.body && release.body.match(/Commit:\s*([a-f0-9]+)/i);
-    if (shaMatch) remoteSha = shaMatch[1].slice(0, 7);
-
-    // Fallback to tag_name for version display
-    if (!remoteVersion) {
-      remoteVersion = release.tag_name.replace(/^v/, '');
-    }
-
-    // Update available if the remote build SHA differs from ours
-    const isNewer = !!(remoteSha && remoteSha !== APP_BUILD_SHA);
-
-    const result = { isNewer, remoteVersion, downloadUrl, timestamp: Date.now() };
-    writeUpdateCache(result);
-    applyUpdateResult(result);
+    const data = await resp.json();
+    data.timestamp = Date.now();
+    writeUpdateCache(data);
+    applyUpdateResult(data);
   } catch {
     // Silently ignore — no update UI shown on error
   }
