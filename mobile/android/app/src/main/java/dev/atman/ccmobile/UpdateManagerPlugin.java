@@ -43,9 +43,16 @@ public class UpdateManagerPlugin extends Plugin {
                 URL downloadUrl = new URL(url);
                 HttpURLConnection conn = (HttpURLConnection) downloadUrl.openConnection();
                 conn.setRequestMethod("GET");
+                conn.setRequestProperty("User-Agent", "CCMobile/" + version);
+                conn.setInstanceFollowRedirects(true);
                 conn.setConnectTimeout(15000);
                 conn.setReadTimeout(60000);
                 conn.connect();
+
+                int responseCode = conn.getResponseCode();
+                if (responseCode / 100 != 2) {
+                    throw new RuntimeException("HTTP " + responseCode);
+                }
 
                 int fileSize = conn.getContentLength();
                 InputStream in = conn.getInputStream();
