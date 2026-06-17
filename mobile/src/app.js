@@ -9,7 +9,7 @@ import { StatusBar } from '@capacitor/status-bar';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0'; // build-time version
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
-const APP_APK_SHA256 = import.meta.env.VITE_APK_SHA256 || '';
+const APP_APK_SHA256 = import.meta.env.VITE_APK_SHA256 || ''; // embedded apk checksum for update checks
 const UPDATE_CACHE_KEY = 'update_check_v2';
 const CACHE_TTL = 5 * 60 * 1000;
 
