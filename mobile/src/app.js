@@ -6,7 +6,7 @@ import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar } from '@capacitor/status-bar';
 
 // ---- App Info ----
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0'; // build-time version
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const APP_APK_SHA256 = import.meta.env.VITE_APK_SHA256 || '';
