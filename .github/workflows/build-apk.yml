@@ -109,6 +109,61 @@ jobs:
             -PversionName=${{ steps.version.outputs.version_raw }}
         working-directory: mobile
 
+      - name: Inject APK SHA256 into web build
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            APK=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          else
+            APK=$(ls mobile/android/app/build/outputs/apk/debug/*.apk | head -1)
+          fi
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          echo "VITE_APK_SHA256=$SHA" >> $GITHUB_ENV
+          echo "APK_SHA256=$SHA" >> $GITHUB_ENV
+          echo "APK: $APK"
+          echo "SHA256: $SHA"
+
+      - name: Rebuild web frontend with SHA256
+        run: npm run build
+        working-directory: mobile
+
+      - name: Rebuild Android with updated web assets
+        run: npx cap copy android
+        working-directory: mobile
+
+      - name: Rebuild APK with SHA256 bundle (production)
+        if: github.ref_name == 'main'
+        run: |
+          cd android && chmod +x ./gradlew && ./gradlew assembleRelease \
+            -PversionCode=${{ steps.version.outputs.version_code }} \
+            -PversionName=${{ steps.version.outputs.version_raw }} \
+            -PkeystorePath=../keystore.jks \
+            -PkeystorePassword="${{ secrets.KEYSTORE_PASSWORD }}" \
+            -PkeyAlias="${{ secrets.KEY_ALIAS }}" \
+            -PkeyPassword="${{ secrets.KEY_PASSWORD }}"
+        working-directory: mobile
+
+      - name: Rebuild APK with SHA256 bundle (test)
+        if: github.ref_name != 'main'
+        run: |
+          cd android && chmod +x ./gradlew && ./gradlew assembleDebug \
+            -PversionCode=${{ steps.version.outputs.version_code }} \
+            -PversionName=${{ steps.version.outputs.version_raw }}
+        working-directory: mobile
+
+      - name: Compute final APK SHA256
+        id: apk_sha
+        run: |
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            APK=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          else
+            APK=$(ls mobile/android/app/build/outputs/apk/debug/*.apk | head -1)
+          fi
+          SHA=$(sha256sum "$APK" | awk '{print $1}')
+          echo "sha256=$SHA" >> $GITHUB_OUTPUT
+          echo "apk_path=$APK" >> $GITHUB_OUTPUT
+          echo "APK: $APK"
+          echo "SHA256: $SHA"
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -129,6 +184,23 @@ jobs:
             Server: easyai.wuya.asia
           files: mobile/android/app/build/outputs/apk/release/*.apk
           make_latest: true
+
+      - name: Notify daemon of production release
+        if: github.ref_name == 'main'
+        run: |
+          if [ -z "${{ secrets.UPDATE_NOTIFY_URL_PROD }}" ]; then
+            echo "UPDATE_NOTIFY_URL_PROD not set, skipping"
+            exit 0
+          fi
+          curl -fsSL -X POST "${{ secrets.UPDATE_NOTIFY_URL_PROD }}/api/update/notify" \
+            -H "Authorization: Bearer ${{ secrets.UPDATE_NOTIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"channel\": \"production\",
+              \"version\": \"${{ steps.version.outputs.version_raw }}\",
+              \"sha256\": \"${{ steps.apk_sha.outputs.sha256 }}\",
+              \"downloadUrl\": \"https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.version }}/ai-remote-${{ steps.version.outputs.version_raw }}.apk\"
+            }"
 
       - name: Create and push version tag
         run: |
@@ -162,3 +234,20 @@ jobs:
           files: mobile/android/app/build/outputs/apk/debug/*.apk
           prerelease: true
           make_latest: false
+
+      - name: Notify daemon of test release
+        if: github.ref_name != 'main'
+        run: |
+          if [ -z "${{ secrets.UPDATE_NOTIFY_URL_TEST }}" ]; then
+            echo "UPDATE_NOTIFY_URL_TEST not set, skipping"
+            exit 0
+          fi
+          curl -fsSL -X POST "${{ secrets.UPDATE_NOTIFY_URL_TEST }}/api/update/notify" \
+            -H "Authorization: Bearer ${{ secrets.UPDATE_NOTIFY_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"channel\": \"test\",
+              \"version\": \"${{ steps.version.outputs.version_raw }}\",
+              \"sha256\": \"${{ steps.apk_sha.outputs.sha256 }}\",
+              \"downloadUrl\": \"https://github.com/${{ github.repository }}/releases/download/test-latest/ai-remote-test-${{ steps.version.outputs.version_raw }}.apk\"
+            }"

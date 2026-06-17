@@ -51,6 +51,22 @@ app.use(authCheck);
 
 const { execSync } = require('child_process');
 
+const UPDATE_INFO_PATH = path.join(__dirname, 'update-info.json');
+
+function loadUpdateInfo() {
+  try {
+    return JSON.parse(fs.readFileSync(UPDATE_INFO_PATH, 'utf-8'));
+  } catch {
+    return { production: null, test: null };
+  }
+}
+
+function saveUpdateInfo(info) {
+  const tmp = UPDATE_INFO_PATH + '.tmp';
+  fs.writeFileSync(tmp, JSON.stringify(info, null, 2), 'utf-8');
+  fs.renameSync(tmp, UPDATE_INFO_PATH);
+}
+
 // ---- HTTP API ----
 
 app.get('/health', (_req, res) => {
@@ -235,54 +251,41 @@ app.get('/api/sessions/:id/history', (req, res) => {
   }
 });
 
-app.get('/api/update/check', async (req, res) => {
-  const env = req.query.env || 'test';
-  const currentSha = req.query.sha || '';
-  const tag = env === 'production' ? 'latest' : 'test-latest';
+app.get('/api/update/check', (req, res) => {
+  const env = req.query.env === 'production' ? 'production' : 'test';
+  const currentSha256 = req.query.sha256 || '';
+  const info = loadUpdateInfo();
+  const latest = info[env];
 
-  const token = process.env.GITHUB_TOKEN || '';
-  if (!token) {
+  if (!latest || !latest.downloadUrl) {
     return res.json({ isNewer: false });
   }
 
-  try {
-    const url = `https://api.github.com/repos/atman233/remote-ai/releases/tags/${tag}`;
-    const ghResp = await fetch(url, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/vnd.github+json',
-      },
-    });
-    if (!ghResp.ok) return res.json({ isNewer: false });
+  const isNewer = !currentSha256 || currentSha256 !== latest.sha256;
+  res.json({
+    isNewer,
+    version: latest.version || '',
+    sha256: latest.sha256 || '',
+    downloadUrl: latest.downloadUrl || '',
+  });
+});
 
-    const release = await ghResp.json();
-    let downloadUrl = null;
-    let remoteVersion = null;
-    let remoteSha = null;
+app.post('/api/update/notify', (req, res) => {
+  const { channel, version, sha256, downloadUrl } = req.body || {};
 
-    if (release.assets) {
-      const apk = release.assets.find(a => a.name.endsWith('.apk'));
-      if (apk) {
-        downloadUrl = apk.browser_download_url;
-        const vMatch = apk.name.match(/v(\d+\.\d+\.\d+)/);
-        if (vMatch) remoteVersion = vMatch[1];
-      }
-    }
-
-    const shaMatch = release.body && release.body.match(/Commit:\s*([a-f0-9]+)/i);
-    if (shaMatch) remoteSha = shaMatch[1].slice(0, 7);
-
-    if (!remoteVersion) {
-      remoteVersion = release.tag_name.replace(/^v/, '');
-    }
-
-    const isNewer = !!(remoteSha && remoteSha !== currentSha);
-
-    res.json({ isNewer, remoteVersion: remoteVersion || '', downloadUrl: downloadUrl || '' });
-  } catch (e) {
-    log(RED(`Update check failed: ${e.message}`));
-    res.json({ isNewer: false });
+  if (channel !== 'production' && channel !== 'test') {
+    return res.status(400).json({ error: 'channel must be production or test' });
   }
+  if (!version || !sha256 || !downloadUrl) {
+    return res.status(400).json({ error: 'version, sha256 and downloadUrl are required' });
+  }
+
+  const info = loadUpdateInfo();
+  info[channel] = { version, sha256, downloadUrl, notifiedAt: new Date().toISOString() };
+  saveUpdateInfo(info);
+
+  log(GREEN(`Update notified: ${channel} v${version} ${sha256.slice(0, 16)}...`));
+  res.json({ success: true });
 });
 
 // ---- WebSocket ----

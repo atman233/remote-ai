@@ -9,6 +9,7 @@ import { StatusBar } from '@capacitor/status-bar';
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
+const APP_APK_SHA256 = import.meta.env.VITE_APK_SHA256 || '';
 const UPDATE_CACHE_KEY = 'update_check_v2';
 const CACHE_TTL = 5 * 60 * 1000;
 
@@ -169,7 +170,9 @@ async function checkForUpdate() {
   }
 
   try {
-    const endpoint = `${baseUrl()}/api/update/check?env=${APP_ENV}&sha=${APP_BUILD_SHA}`;
+    const params = new URLSearchParams({ env: APP_ENV });
+    if (APP_APK_SHA256) params.set('sha256', APP_APK_SHA256);
+    const endpoint = `${baseUrl()}/api/update/check?${params.toString()}`;
     const resp = await fetch(endpoint, { headers: authHeaders() });
     if (!resp.ok) return;
     const data = await resp.json();
