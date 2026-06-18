@@ -202,7 +202,7 @@ async function checkForUpdate() {
       (remoteSha256 && remoteSha256 !== localSha256)
     );
 
-    applyUpdateResult({ isNewer, remoteVersion, downloadUrl });
+    applyUpdateResult({ isNewer, downloadUrl });
   } catch {
     // Silently ignore — no update UI shown on error
   }
