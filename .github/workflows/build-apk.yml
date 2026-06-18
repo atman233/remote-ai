@@ -101,6 +101,16 @@ jobs:
             -PkeyPassword="${{ secrets.KEY_PASSWORD }}"
         working-directory: mobile
 
+      - name: Compute APK SHA256 (production)
+        if: github.ref_name == 'main'
+        id: sha256-prod
+        run: |
+          APK=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
+          SHA256=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "apk_name=$(basename "$APK")" >> $GITHUB_OUTPUT
+          echo "APK: $(basename "$APK") | SHA256: $SHA256"
+
       - name: Build APK (test)
         if: github.ref_name != 'main'
         run: |
@@ -108,6 +118,16 @@ jobs:
             -PversionCode=${{ steps.version.outputs.version_code }} \
             -PversionName=${{ steps.version.outputs.version_raw }}
         working-directory: mobile
+
+      - name: Compute APK SHA256 (test)
+        if: github.ref_name != 'main'
+        id: sha256-test
+        run: |
+          APK=$(ls mobile/android/app/build/outputs/apk/debug/*.apk | head -1)
+          SHA256=$(sha256sum "$APK" | cut -d' ' -f1)
+          echo "sha256=$SHA256" >> $GITHUB_OUTPUT
+          echo "apk_name=$(basename "$APK")" >> $GITHUB_OUTPUT
+          echo "APK: $(basename "$APK") | SHA256: $SHA256"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -126,6 +146,7 @@ jobs:
 
             Version: ${{ steps.version.outputs.version }}
             Commit: ${{ github.sha }}
+            SHA256: ${{ steps.sha256-prod.outputs.sha256 }}
             Server: easyai.wuya.asia
           files: mobile/android/app/build/outputs/apk/release/*.apk
           make_latest: true
@@ -158,6 +179,7 @@ jobs:
 
             Version: ${{ steps.version.outputs.version }}
             Commit: ${{ github.sha }}
+            SHA256: ${{ steps.sha256-test.outputs.sha256 }}
             Server: easyaitest.wuya.asia
           files: mobile/android/app/build/outputs/apk/debug/*.apk
           prerelease: true

@@ -10,8 +10,6 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
-const UPDATE_CACHE_KEY = 'update_check_v2';
-const CACHE_TTL = 5 * 60 * 1000;
 
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
@@ -158,18 +156,13 @@ async function saveSettings() {
 }
 
 // ---- Update Check ----
+// Compares local version + APK SHA256 against remote release
 function initVersionDisplay() {
   updateBtn.textContent = 'v' + APP_VERSION;
   updateBtn.className = 'update-idle';
 }
 
 async function checkForUpdate() {
-  const cache = readUpdateCache();
-  if (cache) {
-    applyUpdateResult(cache);
-    return;
-  }
-
   try {
     const endpoint = APP_ENV === 'production'
       ? `${GITHUB_API}/releases/latest`
@@ -181,7 +174,7 @@ async function checkForUpdate() {
 
     let downloadUrl = null;
     let remoteVersion = null;
-    let remoteSha = null;
+    let remoteSha256 = null;
 
     if (release.assets) {
       const apk = release.assets.find(a => a.name.endsWith('.apk'));
@@ -192,38 +185,50 @@ async function checkForUpdate() {
       }
     }
 
-    // Extract commit SHA from release body (e.g., "Commit: abc1234")
-    const shaMatch = release.body && release.body.match(/Commit:\s*([a-f0-9]+)/i);
-    if (shaMatch) remoteSha = shaMatch[1].slice(0, 7);
+    // Parse SHA256 from release body (e.g., "SHA256: e3b0c442...")
+    const sha256Match = release.body && release.body.match(/SHA256:\s*([a-f0-9]+)/i);
+    if (sha256Match) remoteSha256 = sha256Match[1];
 
     // Fallback to tag_name for version display
     if (!remoteVersion) {
       remoteVersion = release.tag_name.replace(/^v/, '');
     }
 
-    // Update available if the remote build SHA differs from ours
-    const isNewer = !!(remoteSha && remoteSha !== APP_BUILD_SHA);
+    // Compute local APK SHA256 (cached after first computation)
+    const localSha256 = await getLocalApkSha256();
 
-    const result = { isNewer, remoteVersion, downloadUrl, timestamp: Date.now() };
-    writeUpdateCache(result);
-    applyUpdateResult(result);
+    // Update available if version differs or SHA256 differs
+    const isNewer = !!(
+      (remoteVersion && remoteVersion !== APP_VERSION) ||
+      (remoteSha256 && remoteSha256 !== localSha256)
+    );
+
+    applyUpdateResult({ isNewer, downloadUrl });
   } catch {
     // Silently ignore — no update UI shown on error
   }
 }
 
-function readUpdateCache() {
+async function getLocalApkSha256() {
+  const shaKey = `apk_sha256_${APP_VERSION}`;
   try {
-    const raw = localStorage.getItem(UPDATE_CACHE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (Date.now() - data.timestamp < CACHE_TTL) return data;
+    const cached = localStorage.getItem(shaKey);
+    if (cached) return cached;
   } catch {}
-  return null;
-}
 
-function writeUpdateCache(result) {
-  try { localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify(result)); } catch {}
+  try {
+    const core = await import('@capacitor/core');
+    if (!core.Capacitor.isNativePlatform()) return 'browser-dev';
+    const UpdateManager = core.registerPlugin('UpdateManager');
+    const result = await UpdateManager.getLocalApkSha256();
+    if (result && result.sha256) {
+      try { localStorage.setItem(shaKey, result.sha256); } catch {}
+      return result.sha256;
+    }
+  } catch (e) {
+    console.warn('getLocalApkSha256 failed:', e);
+  }
+  return null;
 }
 
 function applyUpdateResult(result) {
@@ -248,6 +253,8 @@ function onUpdateClick() {
   if (updateBtn.classList.contains('update-available') ||
       updateBtn.classList.contains('update-error')) {
     startUpdate();
+  } else {
+    checkForUpdate();
   }
 }
 
