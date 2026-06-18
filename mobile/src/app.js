@@ -163,11 +163,13 @@ function initVersionDisplay() {
   updateBtn.className = 'update-idle';
 }
 
-async function checkForUpdate() {
-  const cache = readUpdateCache();
-  if (cache) {
-    applyUpdateResult(cache);
-    return;
+async function checkForUpdate(force) {
+  if (!force) {
+    const cache = readUpdateCache();
+    if (cache) {
+      applyUpdateResult(cache);
+      return;
+    }
   }
 
   try {
@@ -276,6 +278,9 @@ function onUpdateClick() {
   if (updateBtn.classList.contains('update-available') ||
       updateBtn.classList.contains('update-error')) {
     startUpdate();
+  } else {
+    // Force re-check, bypassing cache
+    checkForUpdate(true);
   }
 }
 
