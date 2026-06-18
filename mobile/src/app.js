@@ -10,8 +10,6 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
-const UPDATE_CACHE_KEY = 'update_check_v3';
-const CACHE_TTL = 30 * 60 * 1000;
 
 // ---- State ----
 let settings = { host: '', user: '', pass: '' };
@@ -163,15 +161,7 @@ function initVersionDisplay() {
   updateBtn.className = 'update-idle';
 }
 
-async function checkForUpdate(force) {
-  if (!force) {
-    const cache = readUpdateCache();
-    if (cache) {
-      applyUpdateResult(cache);
-      return;
-    }
-  }
-
+async function checkForUpdate() {
   try {
     const endpoint = APP_ENV === 'production'
       ? `${GITHUB_API}/releases/latest`
@@ -212,9 +202,7 @@ async function checkForUpdate(force) {
       (remoteSha256 && remoteSha256 !== localSha256)
     );
 
-    const result = { isNewer, remoteVersion, downloadUrl, timestamp: Date.now() };
-    writeUpdateCache(result);
-    applyUpdateResult(result);
+    applyUpdateResult({ isNewer, remoteVersion, downloadUrl });
   } catch {
     // Silently ignore — no update UI shown on error
   }
@@ -242,20 +230,6 @@ async function getLocalApkSha256() {
   return null;
 }
 
-function readUpdateCache() {
-  try {
-    const raw = localStorage.getItem(UPDATE_CACHE_KEY);
-    if (!raw) return null;
-    const data = JSON.parse(raw);
-    if (Date.now() - data.timestamp < CACHE_TTL) return data;
-  } catch {}
-  return null;
-}
-
-function writeUpdateCache(result) {
-  try { localStorage.setItem(UPDATE_CACHE_KEY, JSON.stringify(result)); } catch {}
-}
-
 function applyUpdateResult(result) {
   if (result.isNewer && result.downloadUrl) {
     updateDownloadUrl = result.downloadUrl;
@@ -279,8 +253,7 @@ function onUpdateClick() {
       updateBtn.classList.contains('update-error')) {
     startUpdate();
   } else {
-    // Force re-check, bypassing cache
-    checkForUpdate(true);
+    checkForUpdate();
   }
 }
 
