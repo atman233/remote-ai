@@ -193,7 +193,7 @@ async function checkForUpdate() {
       remoteVersion = release.tag_name.replace(/^v/, '');
     }
 
-    // Get local APK SHA256 (cached after first computation)
+    // Compute local APK SHA256 (cached after first computation)
     const localSha256 = await getLocalApkSha256();
 
     // Update available if version differs or SHA256 differs
