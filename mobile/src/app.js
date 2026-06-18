@@ -10,7 +10,7 @@ const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
 const APP_BUILD_SHA = import.meta.env.VITE_APP_BUILD_SHA || 'dev';
 const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
-const UPDATE_CACHE_KEY = 'update_check_v2';
+const UPDATE_CACHE_KEY = 'update_check_v3';
 const CACHE_TTL = 30 * 60 * 1000;
 
 // ---- State ----
