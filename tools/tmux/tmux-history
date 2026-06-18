@@ -1,0 +1,26 @@
+#!/bin/bash
+# View the last N lines of the target pane's history in a scrollable popup.
+# Usage: tmux-history [pane-id]
+#   pane-id defaults to the current pane.
+#   Set TMUX_HISTORY_LINES env var to override default (1000).
+set -eu
+
+LINES="${TMUX_HISTORY_LINES:-1000}"
+SRC_PANE="${1:-$(tmux display -p '#{pane_id}')}"
+
+TMPFILE=$(mktemp /tmp/tmux-history-XXXXXX)
+trap "rm -f '$TMPFILE'" EXIT
+
+# Capture directly to temp file — no tmux buffer involved.
+tmux capture-pane -p -S "-${LINES}" -t "$SRC_PANE" > "$TMPFILE"
+
+# Pick the best available viewer.
+if command -v bat &>/dev/null; then
+    VIEWER="bat --paging=always --style=plain"
+elif command -v nvim &>/dev/null; then
+    VIEWER="nvim -R -c 'normal G' -c 'set nu'"
+else
+    VIEWER="less -R +G"
+fi
+
+tmux display-popup -h 95% -w 95% -E "$VIEWER $TMPFILE"
