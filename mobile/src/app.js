@@ -21,8 +21,11 @@ let term = null;
 let fitAddon = null;
 let reconnectTimer = null;
 let scrollbackBuf = '';
-let historyOverlay = null;
-let historyContent = null;
+let historySheet = null;
+let historySheetContent = null;
+let historySheetOverlay = null;
+let historySheetError = null;
+let historyCloseBtn = null;
 let updateDownloadUrl = null;
 let updateListenersAdded = false;
 const RECENT_KEY = 'recent_projects';
@@ -79,6 +82,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
 
   initTerminal();
+
+  // History sheet close events (refs set by initHistoryButton)
+  historyCloseBtn = $('history-sheet-close');
+  historySheetOverlay = $('history-sheet-overlay');
+  historyCloseBtn.addEventListener('click', closeHistorySheet);
+  historySheetOverlay.addEventListener('click', closeHistorySheet);
 
   menuBtn.addEventListener('click', toggleDrawer);
   drawerOverlay.addEventListener('click', closeDrawer);
@@ -653,11 +662,6 @@ function connectWS(sessionId) {
       if (scrollbackBuf.length > 100000) {
         scrollbackBuf = scrollbackBuf.slice(-80000);
       }
-      // Update overlay if visible
-      if (historyOverlay && historyOverlay.classList.contains('active')) {
-        historyContent.textContent = stripAnsi(scrollbackBuf);
-        historyContent.scrollTop = historyContent.scrollHeight;
-      }
     } catch {
       // ignore write errors
     }
@@ -746,62 +750,63 @@ function initTerminal() {
     }
   });
 
-  initScrollButtons();
+  initHistoryButton();
 }
 
-// ---- Scroll Buttons ----
-function initScrollButtons() {
-  // Build history overlay
-  historyOverlay = document.createElement('div');
-  historyOverlay.id = 'history-overlay';
+// ---- History Button & Bottom Sheet ----
+function initHistoryButton() {
+  // Cache DOM refs
+  historySheet = $('history-sheet');
+  historySheetContent = $('history-sheet-content');
+  historySheetOverlay = $('history-sheet-overlay');
+  historySheetError = $('history-sheet-error');
+  historyCloseBtn = $('history-sheet-close');
 
-  const header = document.createElement('div');
-  header.id = 'history-overlay-header';
-  header.innerHTML = '<span>对话历史</span>';
-
-  const closeBtn = document.createElement('button');
-  closeBtn.id = 'history-overlay-close';
-  closeBtn.textContent = '✕';
-  closeBtn.addEventListener('click', hideHistory);
-  header.appendChild(closeBtn);
-
-  historyContent = document.createElement('pre');
-  historyContent.id = 'history-content';
-
-  historyOverlay.appendChild(header);
-  historyOverlay.appendChild(historyContent);
-  document.body.appendChild(historyOverlay);
-
-  // Floating toggle buttons
-  const container = document.createElement('div');
-  container.className = 'scroll-btns';
-
-  const upBtn = document.createElement('button');
-  upBtn.className = 'scroll-btn';
-  upBtn.textContent = '▲';
-
-  const downBtn = document.createElement('button');
-  downBtn.className = 'scroll-btn';
-  downBtn.textContent = '▼';
-
-  upBtn.addEventListener('click', showHistory);
-  downBtn.addEventListener('click', hideHistory);
-
-  container.appendChild(upBtn);
-  container.appendChild(downBtn);
-  document.body.appendChild(container);
+  // Create floating toggle button
+  const btn = document.createElement('button');
+  btn.className = 'history-toggle-btn';
+  btn.textContent = '\u{1F4DC}';
+  btn.addEventListener('click', openHistorySheet);
+  document.body.appendChild(btn);
 }
 
-function showHistory() {
-  if (!historyOverlay || !historyContent) return;
-  historyContent.textContent = stripAnsi(scrollbackBuf);
-  // Scroll to show content just above the live viewport
-  historyContent.scrollTop = Math.max(0, historyContent.scrollHeight - historyContent.clientHeight - 300);
-  historyOverlay.classList.add('active');
+function openHistorySheet() {
+  if (!historySheet || !historySheetContent) return;
+
+  // Show scrollbackBuf immediately (zero latency)
+  historySheetContent.textContent = stripAnsi(scrollbackBuf);
+  historySheetContent.scrollTop = Math.max(0,
+    historySheetContent.scrollHeight - historySheetContent.clientHeight - 300);
+
+  historySheetOverlay.classList.add('active');
+  historySheet.classList.add('active');
+
+  // Fetch full history from daemon in background
+  fetchHistory();
 }
 
-function hideHistory() {
-  if (historyOverlay) historyOverlay.classList.remove('active');
+function closeHistorySheet() {
+  if (historySheetOverlay) historySheetOverlay.classList.remove('active');
+  if (historySheet) historySheet.classList.remove('active');
+}
+
+async function fetchHistory() {
+  if (!activeProject || !historySheetContent) return;
+
+  try {
+    const resp = await fetch(
+      `${baseUrl()}/api/sessions/${encodeURIComponent(activeProject.name)}/history?lines=1000`,
+      { headers: authHeaders() }
+    );
+    if (!resp.ok) throw new Error('API failed');
+    const data = await resp.json();
+    historySheetContent.textContent = stripAnsi(data.text);
+    historySheetContent.scrollTop = Math.max(0,
+      historySheetContent.scrollHeight - historySheetContent.clientHeight - 300);
+    if (historySheetError) historySheetError.classList.add('hidden');
+  } catch {
+    if (historySheetError) historySheetError.classList.remove('hidden');
+  }
 }
 
 function stripAnsi(text) {
