@@ -225,7 +225,7 @@ app.get('/api/sessions/:id/history', (req, res) => {
 
   try {
     const text = execSync(
-      `tmux capture-pane -p -S '-${lines}' -t '${id}'`,
+      `tmux capture-pane -p -e -S '-${lines}' -t '${id}'`,
       { timeout: 5000, encoding: 'utf-8', maxBuffer: 2 * 1024 * 1024 }
     );
     res.json({ text, lines, session: id });

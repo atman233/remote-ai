@@ -809,52 +809,93 @@ async function fetchHistory() {
   }
 }
 
+function xterm256ToHex(n) {
+  if (n < 16) {
+    const m = [0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7];
+    const c = ['#1e1e1e','#cd3131','#0dbc79','#e5e510','#2472c8','#bc3fbc','#11a8cd','#e5e5e5',
+               '#666','#f14c4c','#23d18b','#f5f543','#3b8eea','#d670d6','#29b8db','#e5e5e5'];
+    return c[n] || '#d4d4d4';
+  }
+  if (n < 232) {
+    n -= 16;
+    const r = Math.floor(n / 36) * 51;
+    const g = Math.floor((n % 36) / 6) * 51;
+    const b = (n % 6) * 51;
+    return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+  }
+  const v = (n - 232) * 10 + 8;
+  return '#' + [v,v,v].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
 function ansiToHtml(text) {
-  // Escape HTML
+  // Strip non-SGR escape sequences but keep SGR color codes
   let html = text
+    .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, (m) => m.endsWith('m') ? m : '');
+
+  // Escape HTML entities
+  html = html
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
 
-  // Convert ANSI SGR sequences to styled spans
-  const fgMap = { 30:'#1e1e1e', 31:'#f44747', 32:'#608b4e', 33:'#d7ba7d', 34:'#569cd6',
+  // Convert SGR sequences to styled spans
+  const fg16 = { 30:'#1e1e1e', 31:'#f44747', 32:'#608b4e', 33:'#d7ba7d', 34:'#569cd6',
     35:'#c586c0', 36:'#4ec9b0', 37:'#d4d4d4' };
-  const bgMap = { 40:'#1e1e1e', 41:'#f44747', 42:'#608b4e', 43:'#d7ba7d', 44:'#569cd6',
-    45:'#c586c0', 46:'#4ec9b0', 47:'#d4d4d4' };
 
-  html = html.replace(/\x1b\[([0-9;]*)m/g, (match, params) => {
-    if (!params) params = '0';
-    const codes = params.split(';').map(Number);
+  const re = /\x1b\[([0-9;]*)m/g;
+  let result = '<span>';
+  let lastEnd = 0;
+  let m;
+
+  while ((m = re.exec(html)) !== null) {
+    result += html.slice(lastEnd, m.index);
+    lastEnd = m.index + m[0].length;
+
+    const codes = (m[1] || '0').split(';').map(Number);
     let style = '';
-    let cls = '';
 
-    for (const c of codes) {
-      if (c === 0) { style = ''; cls = ''; continue; }
-      if (c === 1) { style += 'font-weight:bold;'; continue; }
-      if (c === 39) { style += 'color:#d4d4d4;'; continue; }
-      if (c === 49) { style += 'background-color:transparent;'; continue; }
-      if (fgMap[c]) { style += 'color:' + fgMap[c] + ';'; continue; }
-      if (bgMap[c]) { style += 'background-color:' + bgMap[c] + ';'; continue; }
-      // Bright foreground (90-97)
-      if (c >= 90 && c <= 97 && fgMap[c - 60]) {
-        style += 'color:' + fgMap[c - 60] + ';'; continue;
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i];
+      if (c === 0) { style = ''; break; }
+      if (c === 1) { style += 'font-weight:bold;'; }
+      else if (c === 2) { style += 'opacity:0.7;'; }
+      else if (c === 3) { style += 'font-style:italic;'; }
+      else if (c === 39) { style += 'color:#d4d4d4;'; }
+      else if (c === 49) { /* bg reset */ }
+      else if (c === 38 && codes[i+1] === 5 && codes[i+2] != null) {
+        style += 'color:' + xterm256ToHex(codes[i+2]) + ';';
+        i += 2;
       }
-      // Bright background (100-107)
-      if (c >= 100 && c <= 107 && bgMap[c - 60]) {
-        style += 'background-color:' + bgMap[c - 60] + ';'; continue;
+      else if (c === 48 && codes[i+1] === 5 && codes[i+2] != null) {
+        style += 'background-color:' + xterm256ToHex(codes[i+2]) + ';';
+        i += 2;
       }
+      else if (c === 38 && codes[i+1] === 2 && codes[i+4] != null) {
+        style += 'color:rgb(' + codes[i+2] + ',' + codes[i+3] + ',' + codes[i+4] + ');';
+        i += 4;
+      }
+      else if (c === 48 && codes[i+1] === 2 && codes[i+4] != null) {
+        style += 'background-color:rgb(' + codes[i+2] + ',' + codes[i+3] + ',' + codes[i+4] + ');';
+        i += 4;
+      }
+      else if (fg16[c]) { style += 'color:' + fg16[c] + ';'; }
+      else if (c >= 90 && c <= 97 && fg16[c - 60]) { style += 'color:' + fg16[c - 60] + ';'; }
+      else if (c >= 40 && c <= 47 && fg16[c - 10]) { style += 'background-color:' + fg16[c - 10] + ';'; }
+      else if (c >= 100 && c <= 107 && fg16[c - 60]) { style += 'background-color:' + fg16[c - 60] + ';'; }
     }
 
-    if (!style && !cls) return '</span>';
-    return '</span><span style="' + style + '" class="' + cls + '">';
-  });
+    result += style
+      ? '</span><span style="' + style + '">'
+      : '</span><span>';
+  }
 
-  // Remove other escape sequences (OSC, CSI non-SGR, control chars)
-  html = html
-    .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+  result += html.slice(lastEnd);
+  result += '</span>';
 
-  return '<span>' + html + '</span>';
+  result = result.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+
+  return result;
 }
 
 // ---- Command Panel ----
