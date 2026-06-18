@@ -156,6 +156,7 @@ async function saveSettings() {
 }
 
 // ---- Update Check ----
+// Compares local version + APK SHA256 against remote release
 function initVersionDisplay() {
   updateBtn.textContent = 'v' + APP_VERSION;
   updateBtn.className = 'update-idle';
