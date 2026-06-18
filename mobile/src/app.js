@@ -774,7 +774,7 @@ function openHistorySheet() {
   if (!historySheet || !historySheetContent) return;
 
   // Show scrollbackBuf immediately (zero latency)
-  historySheetContent.textContent = stripAnsi(scrollbackBuf);
+  historySheetContent.innerHTML = ansiToHtml(scrollbackBuf);
   historySheetContent.scrollTop = Math.max(0,
     historySheetContent.scrollHeight - historySheetContent.clientHeight - 300);
 
@@ -800,7 +800,7 @@ async function fetchHistory() {
     );
     if (!resp.ok) throw new Error('API failed');
     const data = await resp.json();
-    historySheetContent.textContent = stripAnsi(data.text);
+    historySheetContent.innerHTML = ansiToHtml(data.text);
     historySheetContent.scrollTop = Math.max(0,
       historySheetContent.scrollHeight - historySheetContent.clientHeight - 300);
     if (historySheetError) historySheetError.classList.add('hidden');
@@ -809,11 +809,52 @@ async function fetchHistory() {
   }
 }
 
-function stripAnsi(text) {
-  return text
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+function ansiToHtml(text) {
+  // Escape HTML
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Convert ANSI SGR sequences to styled spans
+  const fgMap = { 30:'#1e1e1e', 31:'#f44747', 32:'#608b4e', 33:'#d7ba7d', 34:'#569cd6',
+    35:'#c586c0', 36:'#4ec9b0', 37:'#d4d4d4' };
+  const bgMap = { 40:'#1e1e1e', 41:'#f44747', 42:'#608b4e', 43:'#d7ba7d', 44:'#569cd6',
+    45:'#c586c0', 46:'#4ec9b0', 47:'#d4d4d4' };
+
+  html = html.replace(/\x1b\[([0-9;]*)m/g, (match, params) => {
+    if (!params) params = '0';
+    const codes = params.split(';').map(Number);
+    let style = '';
+    let cls = '';
+
+    for (const c of codes) {
+      if (c === 0) { style = ''; cls = ''; continue; }
+      if (c === 1) { style += 'font-weight:bold;'; continue; }
+      if (c === 39) { style += 'color:#d4d4d4;'; continue; }
+      if (c === 49) { style += 'background-color:transparent;'; continue; }
+      if (fgMap[c]) { style += 'color:' + fgMap[c] + ';'; continue; }
+      if (bgMap[c]) { style += 'background-color:' + bgMap[c] + ';'; continue; }
+      // Bright foreground (90-97)
+      if (c >= 90 && c <= 97 && fgMap[c - 60]) {
+        style += 'color:' + fgMap[c - 60] + ';'; continue;
+      }
+      // Bright background (100-107)
+      if (c >= 100 && c <= 107 && bgMap[c - 60]) {
+        style += 'background-color:' + bgMap[c - 60] + ';'; continue;
+      }
+    }
+
+    if (!style && !cls) return '</span>';
+    return '</span><span style="' + style + '" class="' + cls + '">';
+  });
+
+  // Remove other escape sequences (OSC, CSI non-SGR, control chars)
+  html = html
     .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+
+  return '<span>' + html + '</span>';
 }
 
 // ---- Command Panel ----
