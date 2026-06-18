@@ -4,6 +4,7 @@ import android.content.Intent;
 import android.content.pm.PackageInfo;
 import android.net.Uri;
 import android.os.Build;
+import android.provider.Settings;
 import androidx.core.content.FileProvider;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -59,6 +60,22 @@ public class UpdateManagerPlugin extends Plugin {
         if (url == null || version == null) {
             call.reject("Missing required parameters: url, version");
             return;
+        }
+
+        // Check install permission first (Android 8.0+)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            if (!getContext().getPackageManager().canRequestPackageInstalls()) {
+                Intent permIntent = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES);
+                permIntent.setData(Uri.parse("package:" + getContext().getPackageName()));
+                permIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                getContext().startActivity(permIntent);
+
+                JSObject error = new JSObject();
+                error.put("message", "请先开启「安装未知应用」权限，再点击更新按钮重试");
+                notifyListeners("downloadError", error);
+                call.reject("Install permission not granted");
+                return;
+            }
         }
 
         getActivity().runOnUiThread(() -> {
