@@ -4,17 +4,19 @@ const { execSync } = require('child_process');
 
 const CONFIG_PATH = path.join(__dirname, 'projects.json');
 const DAEMON_PORT = process.env.PORT || 9528;
+const DAEMON_TOKEN = process.env.TOKEN || '';
 
 // ---- Hook Config Injection ----
 // Generates the hook config that lets Claude Code notify the daemon of lifecycle events
 
 function hookConfigFor(projectName) {
+  const authHeader = DAEMON_TOKEN ? `-H 'Authorization: Bearer ${DAEMON_TOKEN}'` : '';
   return {
     hooks: {
       Stop: [{
         hooks: [{
           type: 'command',
-          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'stop', title: '回复完成' })}'`,
+          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'stop', title: '回复完成' })}'`,
           timeout: 5000,
         }],
       }],
@@ -22,14 +24,14 @@ function hookConfigFor(projectName) {
         matcher: 'permission_prompt|elicitation_dialog',
         hooks: [{
           type: 'command',
-          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'needs_input', title: '需要操作' })}'`,
+          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'needs_input', title: '需要操作' })}'`,
           timeout: 5000,
         }],
       }],
       PermissionRequest: [{
         hooks: [{
           type: 'command',
-          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'permission', title: '请求权限' })}'`,
+          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'permission', title: '请求权限' })}'`,
           timeout: 5000,
         }],
       }],
