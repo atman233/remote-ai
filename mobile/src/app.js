@@ -21,8 +21,11 @@ let term = null;
 let fitAddon = null;
 let reconnectTimer = null;
 let scrollbackBuf = '';
-let historyOverlay = null;
-let historyContent = null;
+let historySheet = null;
+let historySheetContent = null;
+let historySheetOverlay = null;
+let historySheetError = null;
+let historyCloseBtn = null;
 let updateDownloadUrl = null;
 let updateListenersAdded = false;
 const RECENT_KEY = 'recent_projects';
@@ -79,6 +82,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   await loadSettings();
 
   initTerminal();
+
+  // History sheet close events (refs set by initHistoryButton)
+  historyCloseBtn = $('history-sheet-close');
+  historySheetOverlay = $('history-sheet-overlay');
+  historyCloseBtn.addEventListener('click', closeHistorySheet);
+  historySheetOverlay.addEventListener('click', closeHistorySheet);
 
   menuBtn.addEventListener('click', toggleDrawer);
   drawerOverlay.addEventListener('click', closeDrawer);
@@ -653,11 +662,6 @@ function connectWS(sessionId) {
       if (scrollbackBuf.length > 100000) {
         scrollbackBuf = scrollbackBuf.slice(-80000);
       }
-      // Update overlay if visible
-      if (historyOverlay && historyOverlay.classList.contains('active')) {
-        historyContent.textContent = stripAnsi(scrollbackBuf);
-        historyContent.scrollTop = historyContent.scrollHeight;
-      }
     } catch {
       // ignore write errors
     }
@@ -746,69 +750,152 @@ function initTerminal() {
     }
   });
 
-  initScrollButtons();
+  initHistoryButton();
 }
 
-// ---- Scroll Buttons ----
-function initScrollButtons() {
-  // Build history overlay
-  historyOverlay = document.createElement('div');
-  historyOverlay.id = 'history-overlay';
+// ---- History Button & Bottom Sheet ----
+function initHistoryButton() {
+  // Cache DOM refs
+  historySheet = $('history-sheet');
+  historySheetContent = $('history-sheet-content');
+  historySheetOverlay = $('history-sheet-overlay');
+  historySheetError = $('history-sheet-error');
+  historyCloseBtn = $('history-sheet-close');
 
-  const header = document.createElement('div');
-  header.id = 'history-overlay-header';
-  header.innerHTML = '<span>对话历史</span>';
-
-  const closeBtn = document.createElement('button');
-  closeBtn.id = 'history-overlay-close';
-  closeBtn.textContent = '✕';
-  closeBtn.addEventListener('click', hideHistory);
-  header.appendChild(closeBtn);
-
-  historyContent = document.createElement('pre');
-  historyContent.id = 'history-content';
-
-  historyOverlay.appendChild(header);
-  historyOverlay.appendChild(historyContent);
-  document.body.appendChild(historyOverlay);
-
-  // Floating toggle buttons
-  const container = document.createElement('div');
-  container.className = 'scroll-btns';
-
-  const upBtn = document.createElement('button');
-  upBtn.className = 'scroll-btn';
-  upBtn.textContent = '▲';
-
-  const downBtn = document.createElement('button');
-  downBtn.className = 'scroll-btn';
-  downBtn.textContent = '▼';
-
-  upBtn.addEventListener('click', showHistory);
-  downBtn.addEventListener('click', hideHistory);
-
-  container.appendChild(upBtn);
-  container.appendChild(downBtn);
-  document.body.appendChild(container);
+  // Create floating toggle button
+  const btn = document.createElement('button');
+  btn.className = 'history-toggle-btn';
+  btn.textContent = '\u{1F4DC}';
+  btn.addEventListener('click', openHistorySheet);
+  document.body.appendChild(btn);
 }
 
-function showHistory() {
-  if (!historyOverlay || !historyContent) return;
-  historyContent.textContent = stripAnsi(scrollbackBuf);
-  // Scroll to show content just above the live viewport
-  historyContent.scrollTop = Math.max(0, historyContent.scrollHeight - historyContent.clientHeight - 300);
-  historyOverlay.classList.add('active');
+function openHistorySheet() {
+  if (!historySheet || !historySheetContent) return;
+
+  // Show scrollbackBuf immediately (zero latency)
+  historySheetContent.innerHTML = ansiToHtml(scrollbackBuf);
+  historySheetContent.scrollTop = Math.max(0,
+    historySheetContent.scrollHeight - historySheetContent.clientHeight - 300);
+
+  historySheetOverlay.classList.add('active');
+  historySheet.classList.add('active');
+
+  // Fetch full history from daemon in background
+  fetchHistory();
 }
 
-function hideHistory() {
-  if (historyOverlay) historyOverlay.classList.remove('active');
+function closeHistorySheet() {
+  if (historySheetOverlay) historySheetOverlay.classList.remove('active');
+  if (historySheet) historySheet.classList.remove('active');
 }
 
-function stripAnsi(text) {
-  return text
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+async function fetchHistory() {
+  if (!activeProject || !historySheetContent) return;
+
+  try {
+    const resp = await fetch(
+      `${baseUrl()}/api/sessions/${encodeURIComponent(activeProject.name)}/history?lines=1000`,
+      { headers: authHeaders() }
+    );
+    if (!resp.ok) throw new Error('API failed');
+    const data = await resp.json();
+    historySheetContent.innerHTML = ansiToHtml(data.text);
+    historySheetContent.scrollTop = Math.max(0,
+      historySheetContent.scrollHeight - historySheetContent.clientHeight - 300);
+    if (historySheetError) historySheetError.classList.add('hidden');
+  } catch {
+    if (historySheetError) historySheetError.classList.remove('hidden');
+  }
+}
+
+function xterm256ToHex(n) {
+  if (n < 16) {
+    const m = [0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7,8,9,0,1,2,3,4,5,6,7];
+    const c = ['#1e1e1e','#cd3131','#0dbc79','#e5e510','#2472c8','#bc3fbc','#11a8cd','#e5e5e5',
+               '#666','#f14c4c','#23d18b','#f5f543','#3b8eea','#d670d6','#29b8db','#e5e5e5'];
+    return c[n] || '#d4d4d4';
+  }
+  if (n < 232) {
+    n -= 16;
+    const r = Math.floor(n / 36) * 51;
+    const g = Math.floor((n % 36) / 6) * 51;
+    const b = (n % 6) * 51;
+    return '#' + [r,g,b].map(v => v.toString(16).padStart(2,'0')).join('');
+  }
+  const v = (n - 232) * 10 + 8;
+  return '#' + [v,v,v].map(v => v.toString(16).padStart(2,'0')).join('');
+}
+
+function ansiToHtml(text) {
+  // Strip non-SGR escape sequences but keep SGR color codes
+  let html = text
     .replace(/\x1b\].*?(\x07|\x1b\\)/g, '')
-    .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, (m) => m.endsWith('m') ? m : '');
+
+  // Escape HTML entities
+  html = html
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+
+  // Convert SGR sequences to styled spans
+  const fg16 = { 30:'#1e1e1e', 31:'#f44747', 32:'#608b4e', 33:'#d7ba7d', 34:'#569cd6',
+    35:'#c586c0', 36:'#4ec9b0', 37:'#d4d4d4' };
+
+  const re = /\x1b\[([0-9;]*)m/g;
+  let result = '<span>';
+  let lastEnd = 0;
+  let m;
+
+  while ((m = re.exec(html)) !== null) {
+    result += html.slice(lastEnd, m.index);
+    lastEnd = m.index + m[0].length;
+
+    const codes = (m[1] || '0').split(';').map(Number);
+    let style = '';
+
+    for (let i = 0; i < codes.length; i++) {
+      const c = codes[i];
+      if (c === 0) { style = ''; break; }
+      if (c === 1) { style += 'font-weight:bold;'; }
+      else if (c === 2) { style += 'opacity:0.7;'; }
+      else if (c === 3) { style += 'font-style:italic;'; }
+      else if (c === 39) { style += 'color:#d4d4d4;'; }
+      else if (c === 49) { /* bg reset */ }
+      else if (c === 38 && codes[i+1] === 5 && codes[i+2] != null) {
+        style += 'color:' + xterm256ToHex(codes[i+2]) + ';';
+        i += 2;
+      }
+      else if (c === 48 && codes[i+1] === 5 && codes[i+2] != null) {
+        style += 'background-color:' + xterm256ToHex(codes[i+2]) + ';';
+        i += 2;
+      }
+      else if (c === 38 && codes[i+1] === 2 && codes[i+4] != null) {
+        style += 'color:rgb(' + codes[i+2] + ',' + codes[i+3] + ',' + codes[i+4] + ');';
+        i += 4;
+      }
+      else if (c === 48 && codes[i+1] === 2 && codes[i+4] != null) {
+        style += 'background-color:rgb(' + codes[i+2] + ',' + codes[i+3] + ',' + codes[i+4] + ');';
+        i += 4;
+      }
+      else if (fg16[c]) { style += 'color:' + fg16[c] + ';'; }
+      else if (c >= 90 && c <= 97 && fg16[c - 60]) { style += 'color:' + fg16[c - 60] + ';'; }
+      else if (c >= 40 && c <= 47 && fg16[c - 10]) { style += 'background-color:' + fg16[c - 10] + ';'; }
+      else if (c >= 100 && c <= 107 && fg16[c - 60]) { style += 'background-color:' + fg16[c - 60] + ';'; }
+    }
+
+    result += style
+      ? '</span><span style="' + style + '">'
+      : '</span><span>';
+  }
+
+  result += html.slice(lastEnd);
+  result += '</span>';
+
+  result = result.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+
+  return result;
 }
 
 // ---- Command Panel ----
