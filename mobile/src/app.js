@@ -4,7 +4,6 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Preferences } from '@capacitor/preferences';
 import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar } from '@capacitor/status-bar';
-import { registerPlugin } from '@capacitor/core';
 
 // ---- App Info ----
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
@@ -33,8 +32,6 @@ let pendingNotifyIds = []; // Track pending notification IDs for ack
 let isForeground = true;   // Track app foreground/background state
 const RECENT_KEY = 'recent_projects';
 
-// ---- Capacitor Plugins ----
-const ForegroundService = registerPlugin('ForegroundService');
 let LocalNotifications = null; // Lazy-loaded on native platform
 
 // ---- DOM refs ----
@@ -91,10 +88,11 @@ async function initNotifications() {
     const mod = await import('@capacitor/local-notifications');
     LocalNotifications = mod.LocalNotifications;
     await LocalNotifications.requestPermissions();
-    // Register notification click handler
+    // When a notification is tapped, open the app then clear it
     LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
-      // Notification tapped — bring app to foreground
-      try { ForegroundService.start({ projectName: activeProject?.name || '' }); } catch {}
+      if (action.notification) {
+        try { LocalNotifications.cancel({ notifications: [{ id: action.notification.id }] }); } catch {}
+      }
     });
   } catch { /* Not on native platform */ }
 }
@@ -220,6 +218,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     const { App } = await import('@capacitor/app');
     App.addListener('appStateChange', ({ isActive }) => {
       isForeground = isActive;
+      // When user returns to app, clear all displayed notifications
+      if (isActive && LocalNotifications) {
+        try {
+          LocalNotifications.cancel({ notifications: pendingNotifyIds.map(id => ({ id })) });
+          pendingNotifyIds = [];
+        } catch {}
+      }
     });
   } catch { /* Not in Capacitor */ }
 });
@@ -505,8 +510,6 @@ async function saveRecentProject(name) {
 function showHomeScreen() {
   homeScreen.classList.remove('hidden');
   terminalContainer.classList.add('hidden');
-  // Stop foreground service when returning to home
-  try { ForegroundService.stop(); } catch {}
 }
 
 function hideHomeScreen() {
@@ -678,9 +681,6 @@ async function startProject(project) {
     ws = null;
   }
 
-  // Stop foreground service from previous session
-  try { ForegroundService.stop(); } catch {}
-
   hideHomeScreen();
   activeProject = project;
   sessionName.textContent = project.name;
@@ -742,8 +742,6 @@ function connectWS(sessionId) {
       term.focus();
       fitAddon.fit();
     }
-    // Start foreground service to keep connection alive
-    try { ForegroundService.start({ projectName: sessionId }); } catch {}
     // Request any pending notifications from daemon (reconnect recovery)
     try { ws.send(JSON.stringify({ type: 'get_pending_notifications' })); } catch {}
   };
@@ -794,7 +792,6 @@ function connectWS(sessionId) {
     setStatus('offline');
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
-    // Keep foreground service running during reconnect attempts
     scheduleReconnect(sessionId);
   };
 
