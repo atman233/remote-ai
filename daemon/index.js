@@ -5,11 +5,43 @@ const expressWs = require('express-ws');
 const pty = require('node-pty');
 
 const { getSessionCwd, loadCommands } = require('./session-manager');
-const { listProjects, getProject, sessionExists } = require('./project-manager');
+const { listProjects, getProject, sessionExists, ensureHooksConfig } = require('./project-manager');
 
 const PORT = process.env.PORT || 9528;
 const HOST = process.env.HOST || '127.0.0.1';
 const TOKEN = process.env.TOKEN || '';
+
+// ---- Notification Infrastructure ----
+const pendingNotifications = new Map(); // sessionName → Notification[]
+const sessionClients = new Map();        // sessionName → Set<WebSocket>
+const MAX_QUEUE_SIZE = 20;
+const NOTIFICATION_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function genNotifyId() {
+  return 'n' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function broadcastToSession(sessionName, message) {
+  const clients = sessionClients.get(sessionName);
+  if (!clients) return;
+  const msg = typeof message === 'string' ? message : JSON.stringify(message);
+  clients.forEach((ws) => {
+    try { ws.send(msg); } catch { /* client gone */ }
+  });
+}
+
+// TTL cleanup every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [session, notifications] of pendingNotifications) {
+    const filtered = notifications.filter(n => (now - new Date(n.time).getTime()) < NOTIFICATION_TTL_MS);
+    if (filtered.length === 0) {
+      pendingNotifications.delete(session);
+    } else if (filtered.length !== notifications.length) {
+      pendingNotifications.set(session, filtered);
+    }
+  }
+}, 10 * 60 * 1000);
 
 const app = express();
 expressWs(app);
@@ -126,6 +158,8 @@ app.post('/api/projects', (req, res) => {
   try {
     fs.mkdirSync(trimmedPath, { recursive: true });
     log(`Created directory: ${trimmedPath}`);
+    // Inject Claude Code hook config for notifications
+    ensureHooksConfig(trimmedName, trimmedPath);
   } catch (e) {
     return res.status(400).json({ error: '无法创建项目目录: ' + e.message });
   }
@@ -239,6 +273,42 @@ app.get('/api/sessions/:id/history', (req, res) => {
   }
 });
 
+// ---- Notifications API ----
+
+app.post('/api/notify', (req, res) => {
+  const { session, event, title, message } = req.body || {};
+
+  if (!session || !event || !title) {
+    return res.status(400).json({ error: 'Missing required fields: session, event, title' });
+  }
+
+  const notification = {
+    id: genNotifyId(),
+    event,
+    title,
+    message: message || '',
+    time: new Date().toISOString(),
+  };
+
+  let queue = pendingNotifications.get(session);
+  if (!queue) {
+    queue = [];
+    pendingNotifications.set(session, queue);
+  }
+  queue.push(notification);
+  while (queue.length > MAX_QUEUE_SIZE) queue.shift();
+
+  log(GREEN(`Notify [${session}]: ${event} — ${title}`));
+  broadcastToSession(session, { type: 'notify', ...notification });
+
+  res.json({ ok: true, id: notification.id });
+});
+
+app.get('/api/sessions/:id/notifications', (req, res) => {
+  const queue = pendingNotifications.get(req.params.id) || [];
+  res.json({ notifications: queue });
+});
+
 // ---- WebSocket ----
 
 app.ws('/api/sessions/:id/pty', (ws, req) => {
@@ -252,6 +322,14 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
     return;
   }
 
+  // Track connection
+  let clients = sessionClients.get(sessionId);
+  if (!clients) {
+    clients = new Set();
+    sessionClients.set(sessionId, clients);
+  }
+  clients.add(ws);
+
   const term = pty.spawn('tmux', ['attach', '-t', sessionId], {
     name: 'xterm-256color',
     cols: 120,
@@ -259,6 +337,16 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
     cwd: process.env.HOME,
     env: Object.assign({}, process.env, { TERM: 'xterm-256color' }),
   });
+
+  // Flush pending notifications on connect
+  const pending = pendingNotifications.get(sessionId);
+  if (pending && pending.length > 0) {
+    log(`Flushing ${pending.length} pending notification(s) for ${sessionId}`);
+    pending.forEach((n) => {
+      try { ws.send(JSON.stringify({ type: 'notify', ...n })); } catch {}
+    });
+    pendingNotifications.delete(sessionId);
+  }
 
   function handleMessage(msg) {
     try {
@@ -275,20 +363,39 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
         return;
       }
 
-      // Check if it's a resize command
+      // Parse JSON control messages
       try {
         const parsed = JSON.parse(raw);
+
+        // Ack notifications (client confirms receipt)
+        if (parsed.type === 'ack_notifications' && Array.isArray(parsed.ids)) {
+          const queue = pendingNotifications.get(sessionId);
+          if (queue) {
+            const idSet = new Set(parsed.ids);
+            const remaining = queue.filter(n => !idSet.has(n.id));
+            if (remaining.length === 0) {
+              pendingNotifications.delete(sessionId);
+            } else {
+              pendingNotifications.set(sessionId, remaining);
+            }
+          }
+          return;
+        }
+
+        // Get pending notifications (explicit request)
+        if (parsed.type === 'get_pending_notifications') {
+          const queue = pendingNotifications.get(sessionId) || [];
+          try { ws.send(JSON.stringify({ type: 'pending_notifications', notifications: queue })); } catch {}
+          return;
+        }
+
+        // Resize command
         if (parsed.cols && parsed.rows) {
           term.resize(parsed.cols, parsed.rows);
           return;
         }
-      } catch {
-        // Not JSON, treat as raw stdin
-      }
 
-      // JSON stdin message
-      try {
-        const parsed = JSON.parse(raw);
+        // Stdin message
         if (parsed.type === 'stdin') {
           term.write(parsed.data);
           return;
@@ -314,9 +421,21 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
   ws.on('message', handleMessage);
   ws.on('close', () => {
     log(YELLOW(`WS disconnect: ${sessionId}`));
+    const clients = sessionClients.get(sessionId);
+    if (clients) {
+      clients.delete(ws);
+      if (clients.size === 0) sessionClients.delete(sessionId);
+    }
     term.kill();
   });
-  ws.on('error', () => term.kill());
+  ws.on('error', () => {
+    const clients = sessionClients.get(sessionId);
+    if (clients) {
+      clients.delete(ws);
+      if (clients.size === 0) sessionClients.delete(sessionId);
+    }
+    term.kill();
+  });
 });
 
 // ---- Start ----
@@ -325,9 +444,11 @@ app.listen(PORT, HOST, () => {
   log(CYAN(`Daemon listening on ${HOST}:${PORT}`));
   const projects = listProjects();
   log(`Found ${projects.length} project(s)`);
-  projects.forEach((p) =>
-    log(`  ${p.name}  ${GRAY(p.path)}  ${p.hasClaudeCode ? GREEN('CC') : ''}`)
-  );
+  projects.forEach((p) => {
+    log(`  ${p.name}  ${GRAY(p.path)}  ${p.hasClaudeCode ? GREEN('CC') : ''}`);
+    // Ensure hook config exists for all projects at startup
+    try { ensureHooksConfig(p.name, p.path); } catch {}
+  });
 });
 
 // ---- ANSI helpers ----

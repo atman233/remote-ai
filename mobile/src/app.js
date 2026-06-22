@@ -4,6 +4,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Preferences } from '@capacitor/preferences';
 import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar } from '@capacitor/status-bar';
+import { registerPlugin } from '@capacitor/core';
 
 // ---- App Info ----
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
@@ -28,7 +29,13 @@ let historySheetError = null;
 let historyCloseBtn = null;
 let updateDownloadUrl = null;
 let updateListenersAdded = false;
+let pendingNotifyIds = []; // Track pending notification IDs for ack
+let isForeground = true;   // Track app foreground/background state
 const RECENT_KEY = 'recent_projects';
+
+// ---- Capacitor Plugins ----
+const ForegroundService = registerPlugin('ForegroundService');
+let LocalNotifications = null; // Lazy-loaded on native platform
 
 // ---- DOM refs ----
 const $ = (id) => document.getElementById(id);
@@ -76,6 +83,87 @@ async function initStatusBar() {
   }
 }
 
+// ---- Notifications ----
+async function initNotifications() {
+  try {
+    const core = await import('@capacitor/core');
+    if (!core.Capacitor.isNativePlatform()) return;
+    const mod = await import('@capacitor/local-notifications');
+    LocalNotifications = mod.LocalNotifications;
+    await LocalNotifications.requestPermissions();
+    // Register notification click handler
+    LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
+      // Notification tapped — bring app to foreground
+      try { ForegroundService.start({ projectName: activeProject?.name || '' }); } catch {}
+    });
+  } catch { /* Not on native platform */ }
+}
+
+function handleNotification(data) {
+  if (!data || !data.event) return;
+
+  if (isForeground) {
+    showToast(data.title || getNotifyTitle(data.event));
+  } else {
+    scheduleLocalNotification(data);
+  }
+}
+
+function getNotifyTitle(event) {
+  switch (event) {
+    case 'stop': return 'Claude 回复完成';
+    case 'needs_input': return 'Claude 需要操作';
+    case 'permission': return 'Claude 请求权限';
+    default: return 'Claude 通知';
+  }
+}
+
+async function scheduleLocalNotification(data) {
+  if (!LocalNotifications) return;
+  try {
+    const opts = {
+      notifications: [{
+        title: data.title || getNotifyTitle(data.event),
+        body: data.message || '点击返回对话',
+        id: parseInt(data.id?.replace(/\D/g, '').slice(-8) || Date.now() % 2147483647, 10),
+        schedule: { at: new Date(Date.now() + 100) },
+        smallIcon: 'ic_stat_notify',
+        iconColor: '#4fc3f7',
+        extra: { event: data.event, session: data.session },
+      }],
+    };
+    await LocalNotifications.schedule(opts);
+    pendingNotifyIds.push(data.id);
+  } catch { /* Silently fail */ }
+}
+
+async function handlePendingNotifications(notifications) {
+  if (!notifications || !notifications.length) return;
+  for (const n of notifications) {
+    scheduleLocalNotification(n);
+  }
+}
+
+// ---- Toast ----
+let toastTimer = null;
+
+function showToast(message, duration) {
+  duration = duration || 2000;
+  let el = document.getElementById('inapp-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'inapp-toast';
+    el.className = 'inapp-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add('active');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => {
+    el.classList.remove('active');
+  }, duration);
+}
+
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', async () => {
   await initStatusBar();
@@ -113,6 +201,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     showSettingsModal();
   }
 
+  // Init notifications and app state tracking
+  await initNotifications();
+
   try {
     Keyboard.addListener('keyboardWillShow', (info) => {
       terminalContainer.style.height = `calc(100% - ${info.keyboardHeight}px)`;
@@ -123,6 +214,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       setTimeout(() => term && fitAddon && fitAddon.fit(), 100);
     });
   } catch { /* Not running in Capacitor */ }
+
+  // Track foreground/background state for notification routing
+  try {
+    const { App } = await import('@capacitor/app');
+    App.addListener('appStateChange', ({ isActive }) => {
+      isForeground = isActive;
+    });
+  } catch { /* Not in Capacitor */ }
 });
 
 // ---- Settings ----
@@ -406,6 +505,8 @@ async function saveRecentProject(name) {
 function showHomeScreen() {
   homeScreen.classList.remove('hidden');
   terminalContainer.classList.add('hidden');
+  // Stop foreground service when returning to home
+  try { ForegroundService.stop(); } catch {}
 }
 
 function hideHomeScreen() {
@@ -577,6 +678,9 @@ async function startProject(project) {
     ws = null;
   }
 
+  // Stop foreground service from previous session
+  try { ForegroundService.stop(); } catch {}
+
   hideHomeScreen();
   activeProject = project;
   sessionName.textContent = project.name;
@@ -638,6 +742,10 @@ function connectWS(sessionId) {
       term.focus();
       fitAddon.fit();
     }
+    // Start foreground service to keep connection alive
+    try { ForegroundService.start({ projectName: sessionId }); } catch {}
+    // Request any pending notifications from daemon (reconnect recovery)
+    try { ws.send(JSON.stringify({ type: 'get_pending_notifications' })); } catch {}
   };
 
   ws.onmessage = (evt) => {
@@ -648,6 +756,20 @@ function connectWS(sessionId) {
         raw = new Uint8Array(evt.data);
         term.write(raw);
       } else if (typeof evt.data === 'string') {
+        // Check for JSON notification messages
+        try {
+          const parsed = JSON.parse(evt.data);
+          if (parsed.type === 'notify') {
+            handleNotification(parsed);
+            return;
+          }
+          if (parsed.type === 'pending_notifications') {
+            handlePendingNotifications(parsed.notifications);
+            return;
+          }
+        } catch {
+          // Not JSON, treat as terminal output
+        }
         raw = evt.data;
         term.write(raw);
       }
@@ -672,6 +794,7 @@ function connectWS(sessionId) {
     setStatus('offline');
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
+    // Keep foreground service running during reconnect attempts
     scheduleReconnect(sessionId);
   };
 

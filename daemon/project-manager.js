@@ -3,6 +3,68 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const CONFIG_PATH = path.join(__dirname, 'projects.json');
+const DAEMON_PORT = process.env.PORT || 9528;
+
+// ---- Hook Config Injection ----
+// Generates the hook config that lets Claude Code notify the daemon of lifecycle events
+
+function hookConfigFor(projectName) {
+  return {
+    hooks: {
+      Stop: [{
+        hooks: [{
+          type: 'command',
+          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'stop', title: '回复完成' })}'`,
+          timeout: 5000,
+        }],
+      }],
+      Notification: [{
+        matcher: 'permission_prompt|elicitation_dialog',
+        hooks: [{
+          type: 'command',
+          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'needs_input', title: '需要操作' })}'`,
+          timeout: 5000,
+        }],
+      }],
+      PermissionRequest: [{
+        hooks: [{
+          type: 'command',
+          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'permission', title: '请求权限' })}'`,
+          timeout: 5000,
+        }],
+      }],
+    },
+  };
+}
+
+function ensureHooksConfig(projectName, projectPath) {
+  const claudeDir = path.join(projectPath, '.claude');
+  const localSettingsPath = path.join(claudeDir, 'settings.local.json');
+
+  try {
+    fs.mkdirSync(claudeDir, { recursive: true });
+  } catch {
+    return;
+  }
+
+  let existing = {};
+  try {
+    existing = JSON.parse(fs.readFileSync(localSettingsPath, 'utf-8'));
+  } catch {
+    // File doesn't exist or is invalid — start fresh
+  }
+
+  // Merge hooks: keep existing hooks, overwrite only the ones we manage
+  const newHookConfig = hookConfigFor(projectName);
+  if (!existing.hooks) existing.hooks = {};
+  Object.assign(existing.hooks, newHookConfig.hooks);
+
+  try {
+    fs.writeFileSync(localSettingsPath, JSON.stringify(existing, null, 2), 'utf-8');
+  } catch {
+    // Can't write — silently skip
+  }
+}
 
 function listProjects() {
   try {
@@ -66,4 +128,4 @@ function detectClaudeCode(sessionName) {
   }
 }
 
-module.exports = { listProjects, getProject, sessionExists, detectClaudeCode };
+module.exports = { listProjects, getProject, sessionExists, detectClaudeCode, ensureHooksConfig };

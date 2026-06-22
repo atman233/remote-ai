@@ -676,3 +676,30 @@ body {
 #history-sheet-error.hidden {
   display: none;
 }
+
+/* ---- In-App Toast ---- */
+.inapp-toast {
+  position: fixed;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: rgba(45, 45, 45, 0.95);
+  color: #d4d4d4;
+  padding: 10px 24px;
+  border-radius: 20px;
+  font-size: 14px;
+  z-index: 1000;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.3s, transform 0.3s;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+  max-width: 90vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inapp-toast.active {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
