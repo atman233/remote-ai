@@ -284,6 +284,7 @@ app.post('/api/notify', (req, res) => {
 
   const notification = {
     id: genNotifyId(),
+    session,
     event,
     title,
     message: message || '',
@@ -338,15 +339,9 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
     env: Object.assign({}, process.env, { TERM: 'xterm-256color' }),
   });
 
-  // Flush pending notifications on connect
-  const pending = pendingNotifications.get(sessionId);
-  if (pending && pending.length > 0) {
-    log(`Flushing ${pending.length} pending notification(s) for ${sessionId}`);
-    pending.forEach((n) => {
-      try { ws.send(JSON.stringify({ type: 'notify', ...n })); } catch {}
-    });
-    pendingNotifications.delete(sessionId);
-  }
+  // Don't auto-flush pending notifications on connect —
+  // client will explicitly request them via get_pending_notifications
+  // and decide how many to display (avoids notification spam on reconnect).
 
   function handleMessage(msg) {
     try {
@@ -386,6 +381,7 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
         if (parsed.type === 'get_pending_notifications') {
           const queue = pendingNotifications.get(sessionId) || [];
           try { ws.send(JSON.stringify({ type: 'pending_notifications', notifications: queue })); } catch {}
+          pendingNotifications.delete(sessionId); // Clear after delivery
           return;
         }
 

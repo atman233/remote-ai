@@ -91,10 +91,10 @@ async function initNotifications() {
     // When a notification is tapped, open the app then clear it
     LocalNotifications.addListener('localNotificationActionPerformed', (action) => {
       if (action.notification) {
-        try { LocalNotifications.cancel({ notifications: [{ id: action.notification.id }] }); } catch {}
+        try { LocalNotifications.cancel({ notifications: [{ id: action.notification.id }] }); } catch (e) { console.error(e); }
       }
     });
-  } catch { /* Not on native platform */ }
+  } catch (e) { console.error('initNotifications failed:', e); }
 }
 
 function handleNotification(data) {
@@ -119,26 +119,38 @@ function getNotifyTitle(event) {
 async function scheduleLocalNotification(data) {
   if (!LocalNotifications) return;
   try {
+    const id = parseInt(data.id?.replace(/\D/g, '').slice(-8) || Date.now() % 2147483647, 10);
     const opts = {
       notifications: [{
         title: data.title || getNotifyTitle(data.event),
         body: data.message || '点击返回对话',
-        id: parseInt(data.id?.replace(/\D/g, '').slice(-8) || Date.now() % 2147483647, 10),
+        id,
         schedule: { at: new Date(Date.now() + 100) },
         smallIcon: 'ic_stat_notify',
         iconColor: '#4fc3f7',
+        sound: 'default',
+        vibration: true,
+        channelId: 'cc-events',
         extra: { event: data.event, session: data.session },
       }],
     };
     await LocalNotifications.schedule(opts);
-    pendingNotifyIds.push(data.id);
-  } catch { /* Silently fail */ }
+    pendingNotifyIds.push(id);
+  } catch (e) { console.error('scheduleLocalNotification failed:', e); }
 }
 
 async function handlePendingNotifications(notifications) {
   if (!notifications || !notifications.length) return;
-  for (const n of notifications) {
-    scheduleLocalNotification(n);
+  // Only show the most recent pending notification to avoid spam on reconnect
+  const latest = notifications.reduce((a, b) =>
+    new Date(a.time) > new Date(b.time) ? a : b
+  );
+  // If user is in foreground (just opened the app), show a toast.
+  // Otherwise schedule a local notification.
+  if (isForeground) {
+    showToast(latest.title || getNotifyTitle(latest.event));
+  } else {
+    scheduleLocalNotification(latest);
   }
 }
 
@@ -219,11 +231,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     App.addListener('appStateChange', ({ isActive }) => {
       isForeground = isActive;
       // When user returns to app, clear all displayed notifications
-      if (isActive && LocalNotifications) {
+      if (isActive && LocalNotifications && pendingNotifyIds.length) {
         try {
-          LocalNotifications.cancel({ notifications: pendingNotifyIds.map(id => ({ id })) });
+          await LocalNotifications.cancel({ notifications: pendingNotifyIds.map(id => ({ id })) });
           pendingNotifyIds = [];
-        } catch {}
+        } catch (e) { console.error('cancel notifications failed:', e); }
       }
     });
   } catch { /* Not in Capacitor */ }

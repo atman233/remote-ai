@@ -16,7 +16,13 @@
     },
     "LocalNotifications": {
       "smallIcon": "ic_stat_notify",
-      "iconColor": "#4fc3f7"
+      "iconColor": "#4fc3f7",
+      "sound": "default",
+      "vibration": true,
+      "importance": 4,
+      "channelId": "cc-events",
+      "channelName": "Claude Code Events",
+      "channelDescription": "Notifications for Claude Code lifecycle events (reply complete, needs input, permission requests)"
     }
   }
 }
