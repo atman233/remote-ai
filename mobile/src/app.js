@@ -100,10 +100,11 @@ async function initNotifications() {
 function handleNotification(data) {
   if (!data || !data.event) return;
 
+  // Always fire a system notification so it appears in the notification bar.
+  // Also show an in-app toast when the user is in the foreground.
+  scheduleLocalNotification(data);
   if (isForeground) {
     showToast(data.title || getNotifyTitle(data.event));
-  } else {
-    scheduleLocalNotification(data);
   }
 }
 
@@ -141,17 +142,12 @@ async function scheduleLocalNotification(data) {
 
 async function handlePendingNotifications(notifications) {
   if (!notifications || !notifications.length) return;
-  // Only show the most recent pending notification to avoid spam on reconnect
+  // Only show the most recent pending notification to avoid spam on reconnect.
+  // Always use a system notification so it appears in the notification bar.
   const latest = notifications.reduce((a, b) =>
     new Date(a.time) > new Date(b.time) ? a : b
   );
-  // If user is in foreground (just opened the app), show a toast.
-  // Otherwise schedule a local notification.
-  if (isForeground) {
-    showToast(latest.title || getNotifyTitle(latest.event));
-  } else {
-    scheduleLocalNotification(latest);
-  }
+  scheduleLocalNotification(latest);
 }
 
 // ---- Toast ----
