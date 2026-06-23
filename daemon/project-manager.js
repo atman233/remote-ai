@@ -13,13 +13,13 @@ function hookConfigFor(projectName) {
   const authHeader = DAEMON_TOKEN ? `-H 'Authorization: Bearer ${DAEMON_TOKEN}'` : '';
   return {
     hooks: {
+      // Stop & PermissionRequest: direct hook config (no matcher)
       Stop: [{
-        hooks: [{
-          type: 'command',
-          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'stop', title: '回复完成' })}'`,
-          timeout: 5000,
-        }],
+        type: 'command',
+        command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'stop', title: '回复完成' })}'`,
+        timeout: 5000,
       }],
+      // Notification: matcher-based hook config
       Notification: [{
         matcher: 'permission_prompt|elicitation_dialog',
         hooks: [{
@@ -29,11 +29,9 @@ function hookConfigFor(projectName) {
         }],
       }],
       PermissionRequest: [{
-        hooks: [{
-          type: 'command',
-          command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'permission', title: '请求权限' })}'`,
-          timeout: 5000,
-        }],
+        type: 'command',
+        command: `curl -s -X POST http://localhost:${DAEMON_PORT}/api/notify ${authHeader} -H 'Content-Type: application/json' -d '${JSON.stringify({ session: projectName, event: 'permission', title: '请求权限' })}'`,
+        timeout: 5000,
       }],
     },
   };
