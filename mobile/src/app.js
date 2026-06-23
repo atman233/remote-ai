@@ -20,6 +20,7 @@ let ws = null;
 let term = null;
 let fitAddon = null;
 let reconnectTimer = null;
+let closingWS = false; // true when we intentionally close the connection
 let scrollbackBuf = '';
 let historySheet = null;
 let historySheetContent = null;
@@ -97,12 +98,16 @@ async function initNotifications() {
   } catch (e) { console.error('initNotifications failed:', e); }
 }
 
-function handleNotification(data) {
+async function handleNotification(data) {
   if (!data || !data.event) return;
 
   // Always fire a system notification so it appears in the notification bar.
   // Also show an in-app toast when the user is in the foreground.
-  scheduleLocalNotification(data);
+  try {
+    await scheduleLocalNotification(data);
+  } catch (e) {
+    console.error('handleNotification failed:', e);
+  }
   if (isForeground) {
     showToast(data.title || getNotifyTitle(data.event));
   }
@@ -118,15 +123,21 @@ function getNotifyTitle(event) {
 }
 
 async function scheduleLocalNotification(data) {
-  if (!LocalNotifications) return;
+  if (!LocalNotifications) {
+    console.warn('scheduleLocalNotification: LocalNotifications plugin not available');
+    return;
+  }
   try {
-    const id = parseInt(data.id?.replace(/\D/g, '').slice(-8) || Date.now() % 2147483647, 10);
+    // Generate a notification ID that fits into Android's int32 range.
+    // Date.now() truncated gives us a unique-enough value that won't collide
+    // with the daemon's base36 IDs (which lose most digits after \D strip).
+    const id = (Date.now() % 2147483647) || 1;
     const opts = {
       notifications: [{
         title: data.title || getNotifyTitle(data.event),
         body: data.message || '点击返回对话',
         id,
-        schedule: { at: new Date(Date.now() + 100) },
+        schedule: { at: new Date(Date.now() + 1000) },
         smallIcon: 'ic_stat_notify',
         iconColor: '#4fc3f7',
         sound: 'default',
@@ -135,9 +146,13 @@ async function scheduleLocalNotification(data) {
         extra: { event: data.event, session: data.session },
       }],
     };
+    console.log('Scheduling notification:', { id, title: opts.notifications[0].title, event: data.event });
     await LocalNotifications.schedule(opts);
     pendingNotifyIds.push(id);
-  } catch (e) { console.error('scheduleLocalNotification failed:', e); }
+    console.log('Notification scheduled successfully:', id);
+  } catch (e) {
+    console.error('scheduleLocalNotification failed:', e);
+  }
 }
 
 async function handlePendingNotifications(notifications) {
@@ -147,7 +162,11 @@ async function handlePendingNotifications(notifications) {
   const latest = notifications.reduce((a, b) =>
     new Date(a.time) > new Date(b.time) ? a : b
   );
-  scheduleLocalNotification(latest);
+  try {
+    await scheduleLocalNotification(latest);
+  } catch (e) {
+    console.error('handlePendingNotifications failed:', e);
+  }
 }
 
 // ---- Toast ----
@@ -590,6 +609,7 @@ async function deleteProject(name) {
 
     // If this was the active project, disconnect
     if (activeProject && activeProject.name === name) {
+      closingWS = true;
       if (ws) { ws.close(1000); ws = null; }
       activeProject = null;
       sessionName.textContent = '未连接';
@@ -685,6 +705,7 @@ async function createProject() {
 // ---- Connection ----
 async function startProject(project) {
   if (ws) {
+    closingWS = true;
     ws.close(1000);
     ws = null;
   }
@@ -729,6 +750,13 @@ async function startProject(project) {
 function connectWS(sessionId) {
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
 
+  // Close any existing connection first to avoid duplicate clients
+  if (ws) {
+    closingWS = true;
+    try { ws.close(1000); } catch {}
+    ws = null;
+  }
+
   showStatus('连接中...', false);
 
   try {
@@ -741,6 +769,7 @@ function connectWS(sessionId) {
   ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
+    reconnectAttempts = 0;
     hideStatus();
     setStatus('online');
     scrollbackBuf = '';
@@ -766,11 +795,11 @@ function connectWS(sessionId) {
         try {
           const parsed = JSON.parse(evt.data);
           if (parsed.type === 'notify') {
-            handleNotification(parsed);
+            handleNotification(parsed).catch(e => console.error('handleNotification:', e));
             return;
           }
           if (parsed.type === 'pending_notifications') {
-            handlePendingNotifications(parsed.notifications);
+            handlePendingNotifications(parsed.notifications).catch(e => console.error('handlePending:', e));
             return;
           }
         } catch {
@@ -796,8 +825,14 @@ function connectWS(sessionId) {
   };
 
   ws.onclose = (evt) => {
-    if (evt.code === 1000) return;
+    // Suppress if we initiated the close (navigating away, switching sessions)
+    if (closingWS) {
+      closingWS = false;
+      return;
+    }
     setStatus('offline');
+    // Don't reconnect if user navigated away (no activeProject).
+    if (!activeProject || activeProject.name !== sessionId) return;
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
     scheduleReconnect(sessionId);
@@ -809,12 +844,21 @@ function connectWS(sessionId) {
   };
 }
 
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 10;
+
 function scheduleReconnect(sessionId) {
   if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    showStatus('重连次数过多，请手动重试', true);
+    return;
+  }
+  reconnectAttempts++;
+  const delay = Math.min(3000 * reconnectAttempts, 30000);
   reconnectTimer = setTimeout(() => {
-    showStatus('重连中...', false);
+    showStatus(`重连中... (${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS})`, false);
     connectWS(sessionId);
-  }, 3000);
+  }, delay);
 }
 
 function reconnect() {
