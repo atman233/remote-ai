@@ -228,7 +228,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Track foreground/background state for notification routing
   try {
     const { App } = await import('@capacitor/app');
-    App.addListener('appStateChange', ({ isActive }) => {
+    App.addListener('appStateChange', async ({ isActive }) => {
       isForeground = isActive;
       // When user returns to app, clear all displayed notifications
       if (isActive && LocalNotifications && pendingNotifyIds.length) {
