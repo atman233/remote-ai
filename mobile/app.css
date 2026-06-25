@@ -51,7 +51,7 @@ body {
 
 /* Update button */
 #update-btn {
-  font-size: 9px;
+  font-size: 7px;
   padding: 3px 8px;
   border-radius: 4px;
   transition: background 0.2s, color 0.2s;
@@ -68,21 +68,21 @@ body {
 #update-btn.update-available {
   background: #1976d2;
   color: #fff;
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 600;
 }
 
 #update-btn.update-downloading {
   background: #1976d2;
   color: #fff;
-  font-size: 9px;
+  font-size: 7px;
   opacity: 0.9;
 }
 
 #update-btn.update-error {
   color: var(--danger);
   background: none;
-  font-size: 10px;
+  font-size: 8px;
 }
 
 #session-info {
