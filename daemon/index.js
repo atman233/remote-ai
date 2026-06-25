@@ -14,8 +14,15 @@ const TOKEN = process.env.TOKEN || '';
 const app = express();
 expressWs(app);
 
+// Track active WebSocket connections per session
+const sessions = new Map(); // sessionId -> Set<WebSocket>
+
 // ---- Auth Middleware ----
 function authCheck(req, res, next) {
+  // Allow localhost without auth (for hook scripts running on same machine)
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
+
   if (!TOKEN) return next(); // No token configured, skip auth
 
   // Check query param (for WebSocket which can't set headers)
@@ -239,12 +246,96 @@ app.get('/api/sessions/:id/history', (req, res) => {
   }
 });
 
+// ---- Notification endpoint (called by Claude hooks) ----
+
+app.post('/api/notify', (req, res) => {
+  const { project, event } = req.body || {};
+  if (!project) {
+    return res.status(400).json({ error: 'missing project' });
+  }
+
+  const conns = sessions.get(project);
+  if (conns && conns.size > 0) {
+    const msg = JSON.stringify({ type: 'notify', event: event || 'stop' });
+    conns.forEach((client) => {
+      try { client.send(msg); } catch {}
+    });
+    log(`Notify broadcast to ${project}: ${conns.size} client(s)`);
+    res.json({ ok: true, delivered: conns.size });
+  } else {
+    res.json({ ok: true, delivered: 0 });
+  }
+});
+
+// ---- Stop Hook enable/disable ----
+
+app.post('/api/projects/:name/hook/stop', (req, res) => {
+  const { name } = req.params;
+  const { enabled } = req.body || {};
+
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'missing enabled (boolean)' });
+  }
+
+  const project = getProject(name);
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在: ' + name });
+  }
+
+  const hookScript = path.join(__dirname, 'hooks', 'stop-notify.sh');
+  const settingsPath = path.join(project.path, '.claude', 'settings.json');
+
+  let settings = {};
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch {
+    // Corrupt file, start fresh
+  }
+
+  if (!settings.hooks) settings.hooks = {};
+
+  // Filter out existing stop-notify hooks (avoid duplicates on re-enable)
+  const isStopNotify = (h) => h.command && h.command.includes('stop-notify.sh');
+
+  if (enabled) {
+    settings.hooks.Stop = (settings.hooks.Stop || []).filter((h) => !isStopNotify(h));
+    settings.hooks.Stop.push({
+      type: 'command',
+      command: `bash ${hookScript} ${name}`,
+    });
+  } else {
+    if (settings.hooks.Stop) {
+      settings.hooks.Stop = settings.hooks.Stop.filter((h) => !isStopNotify(h));
+      if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
+    }
+    if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    const tmpPath = settingsPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, settingsPath);
+    log(GREEN(`Stop hook ${enabled ? 'enabled' : 'disabled'} for ${name}`));
+    res.json({ ok: true, enabled });
+  } catch (e) {
+    log(RED(`Failed to write hook config: ${e.message}`));
+    res.status(500).json({ error: '写入Hook配置失败: ' + e.message });
+  }
+});
+
 // ---- WebSocket ----
 
 app.ws('/api/sessions/:id/pty', (ws, req) => {
   const sessionId = req.params.id;
 
   log(GREEN(`WS connect: ${sessionId}`));
+
+  // Track connection
+  if (!sessions.has(sessionId)) sessions.set(sessionId, new Set());
+  sessions.get(sessionId).add(ws);
 
   if (!sessionExists(sessionId)) {
     ws.send('\x1b[31m会话不存在或已关闭\x1b[0m\n');
@@ -314,9 +405,15 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
   ws.on('message', handleMessage);
   ws.on('close', () => {
     log(YELLOW(`WS disconnect: ${sessionId}`));
+    const conns = sessions.get(sessionId);
+    if (conns) { conns.delete(ws); if (conns.size === 0) sessions.delete(sessionId); }
     term.kill();
   });
-  ws.on('error', () => term.kill());
+  ws.on('error', () => {
+    const conns = sessions.get(sessionId);
+    if (conns) { conns.delete(ws); if (conns.size === 0) sessions.delete(sessionId); }
+    term.kill();
+  });
 });
 
 // ---- Start ----

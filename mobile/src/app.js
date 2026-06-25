@@ -4,6 +4,23 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Preferences } from '@capacitor/preferences';
 import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar } from '@capacitor/status-bar';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { registerPlugin } from '@capacitor/core';
+
+const ForegroundService = registerPlugin('ForegroundService');
+
+// Create notification channel for task notifications
+(async () => {
+  try {
+    await LocalNotifications.createChannel({
+      id: 'claude-tasks',
+      name: '任务通知',
+      description: 'Claude 任务完成或需要确认时通知',
+      importance: 4,
+      visibility: 1,
+    });
+  } catch {}
+})();
 
 // ---- App Info ----
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
@@ -103,6 +120,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   homeNewBtn.addEventListener('click', showNewProjectModal);
   newProjCreate.addEventListener('click', createProject);
   newProjCancel.addEventListener('click', () => hideModal(newProjectModal));
+
+  // Notification tap handler
+  try {
+    await LocalNotifications.requestPermissions();
+    LocalNotifications.addListener('localNotificationActionPerformed', (notif) => {
+      const project = notif.notification?.extra?.project;
+      if (project) {
+        const p = projects.find((x) => x.name === project);
+        if (p) startProject(p);
+      }
+    });
+  } catch {}
 
   loadRecentProjects();
   checkForUpdate();
@@ -355,13 +384,15 @@ function renderProjectList() {
   projects.forEach((p) => {
     const div = document.createElement('div');
     div.className = 'session-item' + (activeProject && activeProject.name === p.name ? ' active' : '');
+    const bellActive = p.stopNotify ? ' active' : '';
     div.innerHTML = `
       <span class="name">${esc(p.name)}</span>
       ${p.hasClaudeCode ? '<span class="badge">CC</span>' : ''}
+      <button class="bell-btn${bellActive}" data-name="${esc(p.name)}" aria-label="通知">🔔</button>
       <button class="delete-btn" data-name="${esc(p.name)}" aria-label="删除">×</button>
     `;
     div.addEventListener('click', (e) => {
-      if (e.target.closest('.delete-btn')) return;
+      if (e.target.closest('.delete-btn') || e.target.closest('.bell-btn')) return;
       startProject(p);
       closeDrawer();
     });
@@ -374,6 +405,28 @@ function renderProjectList() {
       e.stopPropagation();
       closeDrawer();
       deleteProject(btn.dataset.name);
+    });
+  });
+
+  // Attach bell toggle handlers
+  sessionList.querySelectorAll('.bell-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      const enabled = !btn.classList.contains('active');
+      try {
+        const resp = await fetch(
+          `${baseUrl()}/api/projects/${encodeURIComponent(name)}/hook/stop`,
+          {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled }),
+          }
+        );
+        if (resp.ok) {
+          btn.classList.toggle('active', enabled);
+        }
+      } catch {}
     });
   });
 }
@@ -478,6 +531,7 @@ async function deleteProject(name) {
 
     // If this was the active project, disconnect
     if (activeProject && activeProject.name === name) {
+      ForegroundService.stop();
       if (ws) { ws.close(1000); ws = null; }
       activeProject = null;
       sessionName.textContent = '未连接';
@@ -573,6 +627,7 @@ async function createProject() {
 // ---- Connection ----
 async function startProject(project) {
   if (ws) {
+    ForegroundService.stop();
     ws.close(1000);
     ws = null;
   }
@@ -633,6 +688,7 @@ function connectWS(sessionId) {
     setStatus('online');
     scrollbackBuf = '';
     saveRecentProject(sessionId);
+    ForegroundService.start({ title: `Claude: ${sessionId}` });
     if (term) {
       term.clear();
       term.focus();
@@ -649,6 +705,16 @@ function connectWS(sessionId) {
         term.write(raw);
       } else if (typeof evt.data === 'string') {
         raw = evt.data;
+        // Intercept notification messages from daemon
+        try {
+          const msg = JSON.parse(raw);
+          if (msg.type === 'notify') {
+            handleNotify(msg.event);
+            return;
+          }
+        } catch {
+          // Not JSON, regular terminal data
+        }
         term.write(raw);
       }
       if (raw) {
@@ -672,6 +738,7 @@ function connectWS(sessionId) {
     setStatus('offline');
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
+    ForegroundService.stop();
     scheduleReconnect(sessionId);
   };
 
@@ -962,6 +1029,23 @@ function showStatus(text, showRetry) {
 
 function hideStatus() {
   statusOverlay.classList.add('hidden');
+}
+
+// ---- Notification ----
+async function handleNotify(event) {
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: Date.now(),
+        title: 'Claude 完成回复',
+        body: activeProject ? `项目: ${activeProject.name}` : '点击查看',
+        channelId: 'claude-tasks',
+        smallIcon: 'ic_stat_icon_config_sample',
+        autoCancel: true,
+        extra: { project: activeProject ? activeProject.name : '' },
+      }],
+    });
+  } catch {}
 }
 
 // ---- Modal ----

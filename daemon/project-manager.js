@@ -15,6 +15,7 @@ function listProjects() {
       path: p.path,
       hasSession: sessionExists(p.name),
       hasClaudeCode: detectClaudeCode(p.name),
+      stopNotify: detectStopNotify(p.path),
     }));
   } catch {
     return [];
@@ -66,4 +67,17 @@ function detectClaudeCode(sessionName) {
   }
 }
 
-module.exports = { listProjects, getProject, sessionExists, detectClaudeCode };
+function detectStopNotify(projectPath) {
+  try {
+    const settingsPath = path.join(projectPath, '.claude', 'settings.json');
+    if (!fs.existsSync(settingsPath)) return false;
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    const hooks = settings.hooks;
+    if (!hooks || !hooks.Stop) return false;
+    return hooks.Stop.some((h) => h.command && h.command.includes('stop-notify.sh'));
+  } catch {
+    return false;
+  }
+}
+
+module.exports = { listProjects, getProject, sessionExists, detectClaudeCode, detectStopNotify };
