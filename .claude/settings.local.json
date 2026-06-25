@@ -2,9 +2,14 @@
   "hooks": {
     "Stop": [
       {
-        "type": "command",
-        "command": "curl -s -X POST http://localhost:9528/api/notify -H 'Authorization: Bearer 123456' -H 'Content-Type: application/json' -d '{\"session\":\"easyai\",\"event\":\"stop\",\"title\":\"回复完成\"}'",
-        "timeout": 5000
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:9529/api/notify -H 'Authorization: Bearer 123456' -H 'Content-Type: application/json' -d '{\"session\":\"easyai\",\"event\":\"stop\",\"title\":\"回复完成\"}'",
+            "timeout": 5000
+          }
+        ]
       }
     ],
     "Notification": [
@@ -13,7 +18,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "curl -s -X POST http://localhost:9528/api/notify -H 'Authorization: Bearer 123456' -H 'Content-Type: application/json' -d '{\"session\":\"easyai\",\"event\":\"needs_input\",\"title\":\"需要操作\"}'",
+            "command": "curl -s -X POST http://localhost:9529/api/notify -H 'Authorization: Bearer 123456' -H 'Content-Type: application/json' -d '{\"session\":\"easyai\",\"event\":\"needs_input\",\"title\":\"需要操作\"}'",
             "timeout": 5000
           }
         ]
@@ -21,9 +26,14 @@
     ],
     "PermissionRequest": [
       {
-        "type": "command",
-        "command": "curl -s -X POST http://localhost:9528/api/notify -H 'Authorization: Bearer 123456' -H 'Content-Type: application/json' -d '{\"session\":\"easyai\",\"event\":\"permission\",\"title\":\"请求权限\"}'",
-        "timeout": 5000
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST http://localhost:9529/api/notify -H 'Authorization: Bearer 123456' -H 'Content-Type: application/json' -d '{\"session\":\"easyai\",\"event\":\"permission\",\"title\":\"请求权限\"}'",
+            "timeout": 5000
+          }
+        ]
       }
     ]
   }
