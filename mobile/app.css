@@ -65,6 +65,12 @@ body {
   background: none;
 }
 
+#update-btn.update-checking {
+  color: var(--fg2);
+  background: none;
+  opacity: 0.6;
+}
+
 #update-btn.update-available {
   background: #1976d2;
   color: #fff;

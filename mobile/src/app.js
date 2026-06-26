@@ -210,14 +210,24 @@ function initVersionDisplay() {
   updateBtn.className = 'update-idle';
 }
 
-async function checkForUpdate() {
+async function checkForUpdate(showFeedback = false) {
   try {
     const endpoint = APP_ENV === 'production'
       ? `${GITHUB_API}/releases/latest`
       : `${GITHUB_API}/releases/tags/test-latest`;
 
-    const resp = await fetch(endpoint);
-    if (!resp.ok) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const resp = await fetch(endpoint, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      if (showFeedback) {
+        updateBtn.textContent = '重试';
+        updateBtn.className = 'update-error';
+      }
+      return;
+    }
     const release = await resp.json();
 
     let downloadUrl = null;
@@ -233,27 +243,38 @@ async function checkForUpdate() {
       }
     }
 
-    // Parse SHA256 from release body (e.g., "SHA256: e3b0c442...")
     const sha256Match = release.body && release.body.match(/SHA256:\s*([a-f0-9]+)/i);
     if (sha256Match) remoteSha256 = sha256Match[1];
 
-    // Fallback to tag_name for version display
     if (!remoteVersion) {
       remoteVersion = release.tag_name.replace(/^v/, '');
     }
 
-    // Compute local APK SHA256 (cached after first computation)
     const localSha256 = await getLocalApkSha256();
 
-    // Update available if version differs or SHA256 differs
     const isNewer = !!(
       (remoteVersion && remoteVersion !== APP_VERSION) ||
       (remoteSha256 && remoteSha256 !== localSha256)
     );
 
-    applyUpdateResult({ isNewer, downloadUrl });
-  } catch {
-    // Silently ignore — no update UI shown on error
+    if (isNewer && downloadUrl) {
+      updateDownloadUrl = downloadUrl;
+      updateBtn.textContent = '更新';
+      updateBtn.className = 'update-available';
+    } else if (showFeedback) {
+      // No update available — briefly show then revert
+      updateBtn.textContent = '已最新';
+      setTimeout(() => {
+        updateBtn.textContent = 'v' + APP_VERSION;
+        updateBtn.className = 'update-idle';
+      }, 1500);
+    }
+  } catch (e) {
+    console.error('checkForUpdate failed:', e);
+    if (showFeedback) {
+      updateBtn.textContent = '重试';
+      updateBtn.className = 'update-error';
+    }
   }
 }
 
@@ -301,8 +322,10 @@ function onUpdateClick() {
   if (updateBtn.classList.contains('update-available') ||
       updateBtn.classList.contains('update-error')) {
     startUpdate();
-  } else {
-    checkForUpdate();
+  } else if (!updateBtn.classList.contains('update-checking')) {
+    updateBtn.textContent = '...';
+    updateBtn.className = 'update-checking';
+    checkForUpdate(true);
   }
 }
 
