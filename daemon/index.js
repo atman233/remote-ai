@@ -319,6 +319,16 @@ app.post('/api/projects/:name/hook/stop', (req, res) => {
     fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2), 'utf-8');
     fs.renameSync(tmpPath, settingsPath);
     log(GREEN(`Stop hook ${enabled ? 'enabled' : 'disabled'} for ${name}`));
+
+    // Trigger config reload: WSL-mounted drives don't support fs.watch,
+    // so Claude won't auto-detect the change. Send Enter to start a new
+    // turn, which causes Claude to re-read .claude/settings.json.
+    if (enabled && sessionExists(name)) {
+      try {
+        execSync(`tmux send-keys -t '${name}' Enter`, { timeout: 2000 });
+      } catch {}
+    }
+
     res.json({ ok: true, enabled });
   } catch (e) {
     log(RED(`Failed to write hook config: ${e.message}`));
