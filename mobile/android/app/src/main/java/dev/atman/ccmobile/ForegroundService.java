@@ -189,6 +189,8 @@ public class ForegroundService extends Service {
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .build();
 
         manager.notify((int) System.currentTimeMillis(), notification);

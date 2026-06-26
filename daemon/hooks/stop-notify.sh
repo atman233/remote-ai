@@ -11,12 +11,12 @@ if [ -z "$PROJECT" ]; then
 fi
 
 # Notify daemon (localhost bypasses auth)
-DAEMON_PORT=9528
-if [ -f /tmp/cc-daemon-port ]; then
-  DAEMON_PORT=$(cat /tmp/cc-daemon-port 2>/dev/null || echo 9528)
-elif [ -n "$PORT" ]; then
-  DAEMON_PORT="$PORT"
+# Priority: PORT env > port file > default 9528
+DAEMON_PORT="${PORT:-}"
+if [ -z "$DAEMON_PORT" ] && [ -f /tmp/cc-daemon-port ]; then
+  DAEMON_PORT=$(cat /tmp/cc-daemon-port 2>/dev/null)
 fi
+DAEMON_PORT="${DAEMON_PORT:-9528}"
 curl -s -X POST "http://127.0.0.1:${DAEMON_PORT}/api/notify" \
   -H "Content-Type: application/json" \
   -d "{\"project\":\"$PROJECT\",\"event\":\"stop\"}" > /dev/null 2>&1 &
