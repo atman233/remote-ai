@@ -293,6 +293,8 @@ app.get('/api/projects/:name/notifications', (req, res) => {
   const all = pendingNotifs.get(name) || [];
   const items = all.filter((n) => n.id > since);
 
+  log(`Poll ${name} since=${since} → ${items.length} items (total ${all.length})`);
+
   res.json({
     notifications: items,
     latestId: items.length > 0 ? items[items.length - 1].id : since,
@@ -470,6 +472,11 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
 // ---- Start ----
 
 app.listen(PORT, HOST, () => {
+  // Write port to file so hook scripts can find it
+  try {
+    const portFile = path.join(require('os').tmpdir(), 'cc-daemon-port');
+    fs.writeFileSync(portFile, String(PORT), 'utf-8');
+  } catch {}
   log(CYAN(`Daemon listening on ${HOST}:${PORT}`));
   const projects = listProjects();
   log(`Found ${projects.length} project(s)`);

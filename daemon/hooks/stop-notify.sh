@@ -11,7 +11,13 @@ if [ -z "$PROJECT" ]; then
 fi
 
 # Notify daemon (localhost bypasses auth)
-curl -s -X POST "http://127.0.0.1:9528/api/notify" \
+DAEMON_PORT=9528
+if [ -f /tmp/cc-daemon-port ]; then
+  DAEMON_PORT=$(cat /tmp/cc-daemon-port 2>/dev/null || echo 9528)
+elif [ -n "$PORT" ]; then
+  DAEMON_PORT="$PORT"
+fi
+curl -s -X POST "http://127.0.0.1:${DAEMON_PORT}/api/notify" \
   -H "Content-Type: application/json" \
   -d "{\"project\":\"$PROJECT\",\"event\":\"stop\"}" > /dev/null 2>&1 &
 
