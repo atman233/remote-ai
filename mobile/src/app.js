@@ -29,7 +29,7 @@ const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
 
 // ---- State ----
-let settings = { host: '', user: '', pass: '' };
+let settings = { host: '', user: '', pass: '', notifyPollInterval: 10 };
 let projects = [];
 let recentProjects = [];
 let activeProject = null;
@@ -79,6 +79,7 @@ const settingsModal = $('settings-modal');
 const settingHost = $('setting-host');
 const settingUser = $('setting-user');
 const settingPass = $('setting-pass');
+const settingPollInterval = $('setting-poll-interval');
 const settingsSave = $('settings-save');
 const settingsCancel = $('settings-cancel');
 
@@ -161,11 +162,15 @@ async function loadSettings() {
     settings.host = (await Preferences.get({ key: 'host' })).value || defaultHost;
     settings.user = (await Preferences.get({ key: 'user' })).value || '';
     settings.pass = (await Preferences.get({ key: 'pass' })).value || '';
+    const interval = parseInt((await Preferences.get({ key: 'notifyPollInterval' })).value);
+    settings.notifyPollInterval = interval > 0 ? interval : 10;
   } catch {
     const defaultHost = import.meta.env.VITE_DEFAULT_HOST || '';
     settings.host = localStorage.getItem('cc_host') || defaultHost;
     settings.user = localStorage.getItem('cc_user') || '';
     settings.pass = localStorage.getItem('cc_pass') || '';
+    const interval = parseInt(localStorage.getItem('cc_notifyPollInterval'));
+    settings.notifyPollInterval = interval > 0 ? interval : 10;
   }
 }
 
@@ -173,6 +178,7 @@ function showSettingsModal() {
   settingHost.value = settings.host;
   settingUser.value = settings.user;
   settingPass.value = settings.pass;
+  settingPollInterval.value = settings.notifyPollInterval;
   showModal(settingsModal);
 }
 
@@ -180,14 +186,18 @@ async function saveSettings() {
   settings.host = settingHost.value.trim();
   settings.user = settingUser.value.trim();
   settings.pass = settingPass.value.trim();
+  const interval = parseInt(settingPollInterval.value) || 10;
+  settings.notifyPollInterval = Math.max(5, interval);
   try {
     await Preferences.set({ key: 'host', value: settings.host });
     await Preferences.set({ key: 'user', value: settings.user });
     await Preferences.set({ key: 'pass', value: settings.pass });
+    await Preferences.set({ key: 'notifyPollInterval', value: String(settings.notifyPollInterval) });
   } catch {
     localStorage.setItem('cc_host', settings.host);
     localStorage.setItem('cc_user', settings.user);
     localStorage.setItem('cc_pass', settings.pass);
+    localStorage.setItem('cc_notifyPollInterval', String(settings.notifyPollInterval));
   }
   hideModal(settingsModal);
   await refreshProjects();
@@ -688,7 +698,13 @@ function connectWS(sessionId) {
     setStatus('online');
     scrollbackBuf = '';
     saveRecentProject(sessionId);
-    ForegroundService.start({ title: `Claude: ${sessionId}` }).catch(() => {});
+    ForegroundService.start({
+      title: `Claude: ${sessionId}`,
+      daemonUrl: baseUrl(),
+      token: settings.pass,
+      projectName: sessionId,
+      pollInterval: settings.notifyPollInterval,
+    }).catch(() => {});
     if (term) {
       term.clear();
       term.focus();
@@ -705,16 +721,9 @@ function connectWS(sessionId) {
         term.write(raw);
       } else if (typeof evt.data === 'string') {
         raw = evt.data;
-        // Intercept notification messages from daemon (prefixed for safety)
-        if (raw.startsWith('CC_NOTIFY:')) {
-          try {
-            const msg = JSON.parse(raw.slice(10));
-            if (msg.type === 'notify') {
-              handleNotify(msg.event);
-              return;
-            }
-          } catch {}
-        }
+        // Intercept notification messages from daemon — suppress from terminal.
+        // Actual notifications are delivered by ForegroundService polling (Java side).
+        if (raw.startsWith('CC_NOTIFY:')) return;
         term.write(raw);
       }
       if (raw) {

@@ -74,7 +74,9 @@ function detectStopNotify(projectPath) {
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
     const hooks = settings.hooks;
     if (!hooks || !hooks.Stop) return false;
-    return hooks.Stop.some((h) => h.command && h.command.includes('stop-notify.sh'));
+    return hooks.Stop.some(
+      (h) => h.hooks && h.hooks.some((hh) => hh.command && hh.command.includes('stop-notify.sh'))
+    );
   } catch {
     return false;
   }

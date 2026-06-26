@@ -17,6 +17,10 @@ expressWs(app);
 // Track active WebSocket connections per session
 const sessions = new Map(); // sessionId -> Set<WebSocket>
 
+// Pending notifications for polling clients (survives WebSocket disconnect)
+const pendingNotifs = new Map(); // projectName -> [{id, event, timestamp}]
+let notifIdCounter = 0;
+
 // ---- Auth Middleware ----
 function authCheck(req, res, next) {
   // Allow localhost without auth (for hook scripts running on same machine)
@@ -254,17 +258,46 @@ app.post('/api/notify', (req, res) => {
     return res.status(400).json({ error: 'missing project' });
   }
 
+  // Store for polling clients
+  const entry = {
+    id: ++notifIdCounter,
+    event: event || 'stop',
+    timestamp: Date.now(),
+  };
+  if (!pendingNotifs.has(project)) pendingNotifs.set(project, []);
+  pendingNotifs.get(project).push(entry);
+  // Keep only last 100
+  if (pendingNotifs.get(project).length > 100) {
+    pendingNotifs.get(project).shift();
+  }
+
+  // Fast path: broadcast via WebSocket to currently connected clients
   const conns = sessions.get(project);
   if (conns && conns.size > 0) {
-    const msg = 'CC_NOTIFY:' + JSON.stringify({ type: 'notify', event: event || 'stop' });
+    const msg = 'CC_NOTIFY:' + JSON.stringify({ type: 'notify', event: event || 'stop', id: entry.id });
     conns.forEach((client) => {
       try { client.send(msg); } catch {}
     });
     log(`Notify broadcast to ${project}: ${conns.size} client(s)`);
-    res.json({ ok: true, delivered: conns.size });
-  } else {
-    res.json({ ok: true, delivered: 0 });
   }
+
+  res.json({ ok: true, delivered: conns ? conns.size : 0, id: entry.id });
+});
+
+// ---- Notification polling endpoint (for background delivery) ----
+
+app.get('/api/projects/:name/notifications', (req, res) => {
+  const { name } = req.params;
+  const since = parseInt(req.query.since) || 0;
+
+  const all = pendingNotifs.get(name) || [];
+  const items = all.filter((n) => n.id > since);
+
+  res.json({
+    notifications: items,
+    latestId: items.length > 0 ? items[items.length - 1].id : since,
+    serverCounter: notifIdCounter,
+  });
 });
 
 // ---- Stop Hook enable/disable ----
@@ -296,14 +329,19 @@ app.post('/api/projects/:name/hook/stop', (req, res) => {
 
   if (!settings.hooks) settings.hooks = {};
 
-  // Filter out existing stop-notify hooks (avoid duplicates on re-enable)
-  const isStopNotify = (h) => h.command && h.command.includes('stop-notify.sh');
+  const isStopNotify = (h) =>
+    h.hooks && h.hooks.some((hh) => hh.command && hh.command.includes('stop-notify.sh'));
 
   if (enabled) {
     settings.hooks.Stop = (settings.hooks.Stop || []).filter((h) => !isStopNotify(h));
     settings.hooks.Stop.push({
-      type: 'command',
-      command: `bash ${hookScript} ${name}`,
+      matcher: '',
+      hooks: [
+        {
+          type: 'command',
+          command: `bash ${hookScript} ${name}`,
+        },
+      ],
     });
   } else {
     if (settings.hooks.Stop) {

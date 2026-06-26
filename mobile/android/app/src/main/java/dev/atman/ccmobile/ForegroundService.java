@@ -10,23 +10,64 @@ import android.os.Build;
 import android.os.IBinder;
 import androidx.core.app.NotificationCompat;
 
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import org.json.JSONArray;
+import org.json.JSONObject;
+
 public class ForegroundService extends Service {
-    private static final String CHANNEL_ID = "ccmobile_connection";
-    private static final int NOTIFICATION_ID = 1001;
-    private static String currentTitle = "Claude 已连接";
+    private static final String CHANNEL_CONNECTION = "ccmobile_connection";
+    private static final String CHANNEL_TASKS = "claude-tasks";
+    private static final int CONNECTION_NOTIFY_ID = 1001;
 
     public static final String EXTRA_TITLE = "title";
+    public static final String EXTRA_DAEMON_URL = "daemonUrl";
+    public static final String EXTRA_TOKEN = "token";
+    public static final String EXTRA_PROJECT = "projectName";
+    public static final String EXTRA_POLL_INTERVAL = "pollInterval";
+
+    private String currentTitle = "Claude 已连接";
+    private String daemonUrl = "";
+    private String token = "";
+    private String projectName = "";
+    private int pollIntervalSec = 10;
+
+    private ScheduledExecutorService scheduler;
+    private long lastNotifId = 0;
 
     @Override
     public void onCreate() {
         super.onCreate();
-        createNotificationChannel();
+        createNotificationChannel(CHANNEL_CONNECTION, "连接状态",
+            "显示 Claude 连接状态", NotificationManager.IMPORTANCE_LOW, false);
+        createNotificationChannel(CHANNEL_TASKS, "任务通知",
+            "Claude 任务完成或需要确认时通知", NotificationManager.IMPORTANCE_HIGH, true);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && intent.hasExtra(EXTRA_TITLE)) {
-            currentTitle = intent.getStringExtra(EXTRA_TITLE);
+        if (intent != null) {
+            if (intent.hasExtra(EXTRA_TITLE)) {
+                currentTitle = intent.getStringExtra(EXTRA_TITLE);
+            }
+            if (intent.hasExtra(EXTRA_DAEMON_URL)) {
+                daemonUrl = intent.getStringExtra(EXTRA_DAEMON_URL);
+            }
+            if (intent.hasExtra(EXTRA_TOKEN)) {
+                token = intent.getStringExtra(EXTRA_TOKEN);
+            }
+            if (intent.hasExtra(EXTRA_PROJECT)) {
+                projectName = intent.getStringExtra(EXTRA_PROJECT);
+            }
+            if (intent.hasExtra(EXTRA_POLL_INTERVAL)) {
+                pollIntervalSec = intent.getIntExtra(EXTRA_POLL_INTERVAL, 10);
+                if (pollIntervalSec < 5) pollIntervalSec = 5;
+            }
         }
 
         Intent notificationIntent = new Intent(this, MainActivity.class);
@@ -36,7 +77,7 @@ public class ForegroundService extends Service {
             PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        Notification notification = new NotificationCompat.Builder(this, CHANNEL_ID)
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_CONNECTION)
             .setContentTitle("CC Mobile")
             .setContentText(currentTitle)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
@@ -45,7 +86,8 @@ public class ForegroundService extends Service {
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build();
 
-        startForeground(NOTIFICATION_ID, notification);
+        startForeground(CONNECTION_NOTIFY_ID, notification);
+        startPolling();
         return START_STICKY;
     }
 
@@ -56,19 +98,110 @@ public class ForegroundService extends Service {
 
     @Override
     public void onDestroy() {
+        stopPolling();
         stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
 
-    private void createNotificationChannel() {
+    // ---- Polling ----
+
+    private void startPolling() {
+        stopPolling();
+        if (daemonUrl.isEmpty() || projectName.isEmpty()) return;
+
+        scheduler = Executors.newSingleThreadScheduledExecutor();
+        scheduler.scheduleWithFixedDelay(this::pollNotifications,
+            0, pollIntervalSec, TimeUnit.SECONDS);
+    }
+
+    private void stopPolling() {
+        if (scheduler != null) {
+            scheduler.shutdown();
+            scheduler = null;
+        }
+    }
+
+    private void pollNotifications() {
+        try {
+            String encodedProject = URLEncoder.encode(projectName, "UTF-8");
+            URL url = new URL(daemonUrl + "/api/projects/" + encodedProject
+                + "/notifications?since=" + lastNotifId);
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Authorization", "Bearer " + token);
+            conn.setConnectTimeout(8000);
+            conn.setReadTimeout(8000);
+
+            if (conn.getResponseCode() != 200) {
+                conn.disconnect();
+                return;
+            }
+
+            InputStream is = conn.getInputStream();
+            java.util.Scanner s = new java.util.Scanner(is, "UTF-8").useDelimiter("\\A");
+            String body = s.hasNext() ? s.next() : "";
+            s.close();
+            conn.disconnect();
+
+            JSONObject json = new JSONObject(body);
+            JSONArray items = json.getJSONArray("notifications");
+            long latestId = json.optLong("latestId", lastNotifId);
+            long serverCounter = json.optLong("serverCounter", -1);
+
+            // Detect daemon restart: server counter went backwards
+            if (serverCounter >= 0 && serverCounter < lastNotifId) {
+                lastNotifId = 0;
+            }
+
+            for (int i = 0; i < items.length(); i++) {
+                JSONObject item = items.getJSONObject(i);
+                String event = item.optString("event", "stop");
+                showTaskNotification(event);
+            }
+
+            if (latestId > lastNotifId) {
+                lastNotifId = latestId;
+            }
+        } catch (Exception e) {
+            // Retry on next poll
+        }
+    }
+
+    // ---- Task Notification ----
+
+    private void showTaskNotification(String event) {
+        NotificationManager manager = getSystemService(NotificationManager.class);
+
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("fromNotification", true);
+        intent.putExtra("projectName", projectName);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+            this, (int) System.currentTimeMillis(),
+            intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+
+        String body = projectName.isEmpty() ? "点击查看" : "项目: " + projectName;
+        Notification notification = new NotificationCompat.Builder(this, CHANNEL_TASKS)
+            .setContentTitle("Claude 完成回复")
+            .setContentText(body)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build();
+
+        manager.notify((int) System.currentTimeMillis(), notification);
+    }
+
+    // ---- Helpers ----
+
+    private void createNotificationChannel(String id, String name,
+            String desc, int importance, boolean showBadge) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID,
-                "连接状态",
-                NotificationManager.IMPORTANCE_LOW
-            );
-            channel.setDescription("显示 Claude 连接状态");
-            channel.setShowBadge(false);
+            NotificationChannel channel = new NotificationChannel(id, name, importance);
+            channel.setDescription(desc);
+            channel.setShowBadge(showBadge);
             NotificationManager manager = getSystemService(NotificationManager.class);
             if (manager != null) {
                 manager.createNotificationChannel(channel);

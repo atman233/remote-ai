@@ -20,6 +20,10 @@ public class ForegroundServicePlugin extends Plugin {
     @PluginMethod
     public void start(PluginCall call) {
         String title = call.getString("title", "Claude 已连接");
+        String daemonUrl = call.getString("daemonUrl", "");
+        String token = call.getString("token", "");
+        String projectName = call.getString("projectName", "");
+        int pollInterval = call.getInt("pollInterval", 10);
 
         // Android 13+ requires runtime POST_NOTIFICATIONS permission
         if (Build.VERSION.SDK_INT >= 33) {
@@ -35,6 +39,10 @@ public class ForegroundServicePlugin extends Plugin {
 
         Intent serviceIntent = new Intent(getContext(), ForegroundService.class);
         serviceIntent.putExtra(ForegroundService.EXTRA_TITLE, title);
+        serviceIntent.putExtra(ForegroundService.EXTRA_DAEMON_URL, daemonUrl);
+        serviceIntent.putExtra(ForegroundService.EXTRA_TOKEN, token);
+        serviceIntent.putExtra(ForegroundService.EXTRA_PROJECT, projectName);
+        serviceIntent.putExtra(ForegroundService.EXTRA_POLL_INTERVAL, pollInterval);
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getContext().startForegroundService(serviceIntent);
