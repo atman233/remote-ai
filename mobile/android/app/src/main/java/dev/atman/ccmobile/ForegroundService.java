@@ -6,6 +6,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.IBinder;
 import androidx.core.app.NotificationCompat;
@@ -24,6 +25,7 @@ public class ForegroundService extends Service {
     private static final String CHANNEL_CONNECTION = "ccmobile_connection";
     private static final String CHANNEL_TASKS = "claude-tasks";
     private static final int CONNECTION_NOTIFY_ID = 1001;
+    private static final String PREFS_NAME = "ccmobile_service";
 
     public static final String EXTRA_TITLE = "title";
     public static final String EXTRA_DAEMON_URL = "daemonUrl";
@@ -51,23 +53,16 @@ public class ForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null) {
-            if (intent.hasExtra(EXTRA_TITLE)) {
-                currentTitle = intent.getStringExtra(EXTRA_TITLE);
-            }
-            if (intent.hasExtra(EXTRA_DAEMON_URL)) {
-                daemonUrl = intent.getStringExtra(EXTRA_DAEMON_URL);
-            }
-            if (intent.hasExtra(EXTRA_TOKEN)) {
-                token = intent.getStringExtra(EXTRA_TOKEN);
-            }
-            if (intent.hasExtra(EXTRA_PROJECT)) {
-                projectName = intent.getStringExtra(EXTRA_PROJECT);
-            }
-            if (intent.hasExtra(EXTRA_POLL_INTERVAL)) {
-                pollIntervalSec = intent.getIntExtra(EXTRA_POLL_INTERVAL, 10);
-                if (pollIntervalSec < 5) pollIntervalSec = 5;
-            }
+        if (intent != null && intent.hasExtra(EXTRA_DAEMON_URL)) {
+            daemonUrl = intent.getStringExtra(EXTRA_DAEMON_URL);
+            token = intent.getStringExtra(EXTRA_TOKEN);
+            projectName = intent.getStringExtra(EXTRA_PROJECT);
+            currentTitle = intent.getStringExtra(EXTRA_TITLE);
+            pollIntervalSec = intent.getIntExtra(EXTRA_POLL_INTERVAL, 10);
+            if (pollIntervalSec < 5) pollIntervalSec = 5;
+            saveConfig();
+        } else if (daemonUrl.isEmpty()) {
+            restoreConfig();
         }
 
         Intent notificationIntent = new Intent(this, MainActivity.class);
@@ -103,6 +98,35 @@ public class ForegroundService extends Service {
         super.onDestroy();
     }
 
+    @Override
+    public void onTaskRemoved(Intent rootIntent) {
+        // Don't stop — keep polling when app is swiped away
+    }
+
+    // ---- Persistence ----
+
+    private void saveConfig() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putString("daemonUrl", daemonUrl)
+            .putString("token", token)
+            .putString("projectName", projectName)
+            .putInt("pollInterval", pollIntervalSec)
+            .putString("title", currentTitle)
+            .putLong("lastNotifId", lastNotifId)
+            .apply();
+    }
+
+    private void restoreConfig() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        daemonUrl = prefs.getString("daemonUrl", "");
+        token = prefs.getString("token", "");
+        projectName = prefs.getString("projectName", "");
+        pollIntervalSec = prefs.getInt("pollInterval", 10);
+        currentTitle = prefs.getString("title", "Claude 已连接");
+        lastNotifId = prefs.getLong("lastNotifId", 0);
+    }
+
     // ---- Polling ----
 
     private void startPolling() {
@@ -122,6 +146,8 @@ public class ForegroundService extends Service {
     }
 
     private void pollNotifications() {
+        // Save lastNotifId periodically so restarts don't miss notifications
+        saveLastNotifId();
         try {
             String encodedProject = URLEncoder.encode(projectName, "UTF-8");
             URL url = new URL(daemonUrl + "/api/projects/" + encodedProject
@@ -148,7 +174,6 @@ public class ForegroundService extends Service {
             long latestId = json.optLong("latestId", lastNotifId);
             long serverCounter = json.optLong("serverCounter", -1);
 
-            // Detect daemon restart: server counter went backwards
             if (serverCounter >= 0 && serverCounter < lastNotifId) {
                 lastNotifId = 0;
             }
@@ -161,10 +186,16 @@ public class ForegroundService extends Service {
 
             if (latestId > lastNotifId) {
                 lastNotifId = latestId;
+                saveLastNotifId();
             }
         } catch (Exception e) {
             // Retry on next poll
         }
+    }
+
+    private void saveLastNotifId() {
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            .edit().putLong("lastNotifId", lastNotifId).apply();
     }
 
     // ---- Task Notification ----
