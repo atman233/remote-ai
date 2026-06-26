@@ -770,7 +770,7 @@ function connectWS(sessionId) {
     setStatus('offline');
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
-    ForegroundService.stop();
+    // Keep ForegroundService alive — it polls for notifications in background
     scheduleReconnect(sessionId);
   };
 
