@@ -320,12 +320,15 @@ app.post('/api/projects/:name/hook/stop', (req, res) => {
     fs.renameSync(tmpPath, settingsPath);
     log(GREEN(`Stop hook ${enabled ? 'enabled' : 'disabled'} for ${name}`));
 
-    // Trigger config reload: WSL-mounted drives don't support fs.watch,
-    // so Claude won't auto-detect the change. Send Enter to start a new
-    // turn, which causes Claude to re-read .claude/settings.json.
+    // WSL-mounted drives (like /mnt/e/) don't support fs.watch,
+    // so Claude won't auto-detect .claude/settings.json changes.
+    // Interrupt any running tool then /clear to reload all config.
     if (enabled && sessionExists(name)) {
       try {
-        execSync(`tmux send-keys -t '${name}' Enter`, { timeout: 2000 });
+        execSync(
+          `tmux send-keys -t '${name}' C-c; sleep 0.5; tmux send-keys -t '${name}' '/clear' Enter`,
+          { timeout: 5000 }
+        );
       } catch {}
     }
 
