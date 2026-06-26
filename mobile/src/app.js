@@ -531,7 +531,7 @@ async function deleteProject(name) {
 
     // If this was the active project, disconnect
     if (activeProject && activeProject.name === name) {
-      ForegroundService.stop();
+      ForegroundService.stop().catch(() => {});
       if (ws) { ws.close(1000); ws = null; }
       activeProject = null;
       sessionName.textContent = '未连接';
@@ -688,7 +688,7 @@ function connectWS(sessionId) {
     setStatus('online');
     scrollbackBuf = '';
     saveRecentProject(sessionId);
-    ForegroundService.start({ title: `Claude: ${sessionId}` });
+    ForegroundService.start({ title: `Claude: ${sessionId}` }).catch(() => {});
     if (term) {
       term.clear();
       term.focus();
@@ -705,15 +705,15 @@ function connectWS(sessionId) {
         term.write(raw);
       } else if (typeof evt.data === 'string') {
         raw = evt.data;
-        // Intercept notification messages from daemon
-        try {
-          const msg = JSON.parse(raw);
-          if (msg.type === 'notify') {
-            handleNotify(msg.event);
-            return;
-          }
-        } catch {
-          // Not JSON, regular terminal data
+        // Intercept notification messages from daemon (prefixed for safety)
+        if (raw.startsWith('CC_NOTIFY:')) {
+          try {
+            const msg = JSON.parse(raw.slice(10));
+            if (msg.type === 'notify') {
+              handleNotify(msg.event);
+              return;
+            }
+          } catch {}
         }
         term.write(raw);
       }

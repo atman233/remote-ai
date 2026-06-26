@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -14,9 +15,23 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 @CapacitorPlugin(name = "ForegroundService")
 public class ForegroundServicePlugin extends Plugin {
 
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 9001;
+
     @PluginMethod
     public void start(PluginCall call) {
         String title = call.getString("title", "Claude 已连接");
+
+        // Android 13+ requires runtime POST_NOTIFICATIONS permission
+        if (Build.VERSION.SDK_INT >= 33) {
+            if (ContextCompat.checkSelfPermission(getContext(), Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(
+                    getActivity(),
+                    new String[] { Manifest.permission.POST_NOTIFICATIONS },
+                    NOTIFICATION_PERMISSION_REQUEST
+                );
+            }
+        }
 
         Intent serviceIntent = new Intent(getContext(), ForegroundService.class);
         serviceIntent.putExtra(ForegroundService.EXTRA_TITLE, title);

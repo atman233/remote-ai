@@ -256,7 +256,7 @@ app.post('/api/notify', (req, res) => {
 
   const conns = sessions.get(project);
   if (conns && conns.size > 0) {
-    const msg = JSON.stringify({ type: 'notify', event: event || 'stop' });
+    const msg = 'CC_NOTIFY:' + JSON.stringify({ type: 'notify', event: event || 'stop' });
     conns.forEach((client) => {
       try { client.send(msg); } catch {}
     });
@@ -333,15 +333,15 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
 
   log(GREEN(`WS connect: ${sessionId}`));
 
-  // Track connection
-  if (!sessions.has(sessionId)) sessions.set(sessionId, new Set());
-  sessions.get(sessionId).add(ws);
-
   if (!sessionExists(sessionId)) {
     ws.send('\x1b[31m会话不存在或已关闭\x1b[0m\n');
     ws.close();
     return;
   }
+
+  // Track connection
+  if (!sessions.has(sessionId)) sessions.set(sessionId, new Set());
+  sessions.get(sessionId).add(ws);
 
   const term = pty.spawn('tmux', ['attach', '-t', sessionId], {
     name: 'xterm-256color',
