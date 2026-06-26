@@ -319,9 +319,17 @@ function compareVersions(a, b) {
 }
 
 function onUpdateClick() {
-  if (updateBtn.classList.contains('update-available') ||
-      updateBtn.classList.contains('update-error')) {
+  if (updateBtn.classList.contains('update-available')) {
     startUpdate();
+  } else if (updateBtn.classList.contains('update-error')) {
+    // Retry check if we never got a download URL; retry download otherwise
+    if (updateDownloadUrl) {
+      startUpdate();
+    } else {
+      updateBtn.textContent = '...';
+      updateBtn.className = 'update-checking';
+      checkForUpdate(true);
+    }
   } else if (!updateBtn.classList.contains('update-checking')) {
     updateBtn.textContent = '...';
     updateBtn.className = 'update-checking';
