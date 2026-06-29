@@ -65,6 +65,12 @@ body {
   background: none;
 }
 
+#update-btn.update-checking {
+  color: var(--fg2);
+  background: none;
+  opacity: 0.6;
+}
+
 #update-btn.update-available {
   background: #1976d2;
   color: #fff;
@@ -204,6 +210,24 @@ body {
 }
 
 .delete-btn:active { color: var(--danger); }
+
+.bell-btn {
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 6px;
+  flex-shrink: 0;
+  -webkit-tap-highlight-color: transparent;
+  opacity: 0.35;
+  transition: opacity 0.15s;
+  filter: grayscale(100%);
+}
+.bell-btn.active {
+  opacity: 1;
+  filter: none;
+}
+.bell-btn:active { opacity: 0.7; }
 
 .session-item .meta {
   font-size: 11px;

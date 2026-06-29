@@ -4,6 +4,23 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Preferences } from '@capacitor/preferences';
 import { Keyboard } from '@capacitor/keyboard';
 import { StatusBar } from '@capacitor/status-bar';
+import { LocalNotifications } from '@capacitor/local-notifications';
+import { registerPlugin } from '@capacitor/core';
+
+const ForegroundService = registerPlugin('ForegroundService');
+
+// Create notification channel for task notifications
+(async () => {
+  try {
+    await LocalNotifications.createChannel({
+      id: 'claude-tasks',
+      name: '任务通知',
+      description: 'Claude 任务完成或需要确认时通知',
+      importance: 4,
+      visibility: 1,
+    });
+  } catch {}
+})();
 
 // ---- App Info ----
 const APP_VERSION = import.meta.env.VITE_APP_VERSION || '0.0.0';
@@ -12,7 +29,7 @@ const APP_ENV = import.meta.env.VITE_APP_ENV || 'test';
 const GITHUB_API = 'https://api.github.com/repos/atman233/remote-ai';
 
 // ---- State ----
-let settings = { host: '', user: '', pass: '' };
+let settings = { host: '', user: '', pass: '', notifyPollInterval: 10 };
 let projects = [];
 let recentProjects = [];
 let activeProject = null;
@@ -62,6 +79,7 @@ const settingsModal = $('settings-modal');
 const settingHost = $('setting-host');
 const settingUser = $('setting-user');
 const settingPass = $('setting-pass');
+const settingPollInterval = $('setting-poll-interval');
 const settingsSave = $('settings-save');
 const settingsCancel = $('settings-cancel');
 
@@ -104,6 +122,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   newProjCreate.addEventListener('click', createProject);
   newProjCancel.addEventListener('click', () => hideModal(newProjectModal));
 
+  // Notification tap handler
+  try {
+    await LocalNotifications.requestPermissions();
+    LocalNotifications.addListener('localNotificationActionPerformed', (notif) => {
+      const project = notif.notification?.extra?.project;
+      if (project) {
+        const p = projects.find((x) => x.name === project);
+        if (p) startProject(p);
+      }
+    });
+  } catch {}
+
   loadRecentProjects();
   checkForUpdate();
 
@@ -132,11 +162,15 @@ async function loadSettings() {
     settings.host = (await Preferences.get({ key: 'host' })).value || defaultHost;
     settings.user = (await Preferences.get({ key: 'user' })).value || '';
     settings.pass = (await Preferences.get({ key: 'pass' })).value || '';
+    const interval = parseInt((await Preferences.get({ key: 'notifyPollInterval' })).value);
+    settings.notifyPollInterval = interval > 0 ? interval : 10;
   } catch {
     const defaultHost = import.meta.env.VITE_DEFAULT_HOST || '';
     settings.host = localStorage.getItem('cc_host') || defaultHost;
     settings.user = localStorage.getItem('cc_user') || '';
     settings.pass = localStorage.getItem('cc_pass') || '';
+    const interval = parseInt(localStorage.getItem('cc_notifyPollInterval'));
+    settings.notifyPollInterval = interval > 0 ? interval : 10;
   }
 }
 
@@ -144,6 +178,7 @@ function showSettingsModal() {
   settingHost.value = settings.host;
   settingUser.value = settings.user;
   settingPass.value = settings.pass;
+  settingPollInterval.value = settings.notifyPollInterval;
   showModal(settingsModal);
 }
 
@@ -151,14 +186,18 @@ async function saveSettings() {
   settings.host = settingHost.value.trim();
   settings.user = settingUser.value.trim();
   settings.pass = settingPass.value.trim();
+  const interval = parseInt(settingPollInterval.value) || 10;
+  settings.notifyPollInterval = Math.max(5, interval);
   try {
     await Preferences.set({ key: 'host', value: settings.host });
     await Preferences.set({ key: 'user', value: settings.user });
     await Preferences.set({ key: 'pass', value: settings.pass });
+    await Preferences.set({ key: 'notifyPollInterval', value: String(settings.notifyPollInterval) });
   } catch {
     localStorage.setItem('cc_host', settings.host);
     localStorage.setItem('cc_user', settings.user);
     localStorage.setItem('cc_pass', settings.pass);
+    localStorage.setItem('cc_notifyPollInterval', String(settings.notifyPollInterval));
   }
   hideModal(settingsModal);
   await refreshProjects();
@@ -171,14 +210,24 @@ function initVersionDisplay() {
   updateBtn.className = 'update-idle';
 }
 
-async function checkForUpdate() {
+async function checkForUpdate(showFeedback = false) {
   try {
     const endpoint = APP_ENV === 'production'
       ? `${GITHUB_API}/releases/latest`
       : `${GITHUB_API}/releases/tags/test-latest`;
 
-    const resp = await fetch(endpoint);
-    if (!resp.ok) return;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    const resp = await fetch(endpoint, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      if (showFeedback) {
+        updateBtn.textContent = '重试';
+        updateBtn.className = 'update-error';
+      }
+      return;
+    }
     const release = await resp.json();
 
     let downloadUrl = null;
@@ -194,27 +243,38 @@ async function checkForUpdate() {
       }
     }
 
-    // Parse SHA256 from release body (e.g., "SHA256: e3b0c442...")
     const sha256Match = release.body && release.body.match(/SHA256:\s*([a-f0-9]+)/i);
     if (sha256Match) remoteSha256 = sha256Match[1];
 
-    // Fallback to tag_name for version display
     if (!remoteVersion) {
       remoteVersion = release.tag_name.replace(/^v/, '');
     }
 
-    // Compute local APK SHA256 (cached after first computation)
     const localSha256 = await getLocalApkSha256();
 
-    // Update available if version differs or SHA256 differs
     const isNewer = !!(
       (remoteVersion && remoteVersion !== APP_VERSION) ||
       (remoteSha256 && remoteSha256 !== localSha256)
     );
 
-    applyUpdateResult({ isNewer, downloadUrl });
-  } catch {
-    // Silently ignore — no update UI shown on error
+    if (isNewer && downloadUrl) {
+      updateDownloadUrl = downloadUrl;
+      updateBtn.textContent = '更新';
+      updateBtn.className = 'update-available';
+    } else if (showFeedback) {
+      // No update available — briefly show then revert
+      updateBtn.textContent = '已最新';
+      setTimeout(() => {
+        updateBtn.textContent = 'v' + APP_VERSION;
+        updateBtn.className = 'update-idle';
+      }, 1500);
+    }
+  } catch (e) {
+    console.error('checkForUpdate failed:', e);
+    if (showFeedback) {
+      updateBtn.textContent = '重试';
+      updateBtn.className = 'update-error';
+    }
   }
 }
 
@@ -259,11 +319,21 @@ function compareVersions(a, b) {
 }
 
 function onUpdateClick() {
-  if (updateBtn.classList.contains('update-available') ||
-      updateBtn.classList.contains('update-error')) {
+  if (updateBtn.classList.contains('update-available')) {
     startUpdate();
-  } else {
-    checkForUpdate();
+  } else if (updateBtn.classList.contains('update-error')) {
+    // Retry check if we never got a download URL; retry download otherwise
+    if (updateDownloadUrl) {
+      startUpdate();
+    } else {
+      updateBtn.textContent = '...';
+      updateBtn.className = 'update-checking';
+      checkForUpdate(true);
+    }
+  } else if (!updateBtn.classList.contains('update-checking')) {
+    updateBtn.textContent = '...';
+    updateBtn.className = 'update-checking';
+    checkForUpdate(true);
   }
 }
 
@@ -355,13 +425,15 @@ function renderProjectList() {
   projects.forEach((p) => {
     const div = document.createElement('div');
     div.className = 'session-item' + (activeProject && activeProject.name === p.name ? ' active' : '');
+    const bellActive = p.stopNotify ? ' active' : '';
     div.innerHTML = `
       <span class="name">${esc(p.name)}</span>
       ${p.hasClaudeCode ? '<span class="badge">CC</span>' : ''}
+      <button class="bell-btn${bellActive}" data-name="${esc(p.name)}" aria-label="通知">🔔</button>
       <button class="delete-btn" data-name="${esc(p.name)}" aria-label="删除">×</button>
     `;
     div.addEventListener('click', (e) => {
-      if (e.target.closest('.delete-btn')) return;
+      if (e.target.closest('.delete-btn') || e.target.closest('.bell-btn')) return;
       startProject(p);
       closeDrawer();
     });
@@ -374,6 +446,28 @@ function renderProjectList() {
       e.stopPropagation();
       closeDrawer();
       deleteProject(btn.dataset.name);
+    });
+  });
+
+  // Attach bell toggle handlers
+  sessionList.querySelectorAll('.bell-btn').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const name = btn.dataset.name;
+      const enabled = !btn.classList.contains('active');
+      try {
+        const resp = await fetch(
+          `${baseUrl()}/api/projects/${encodeURIComponent(name)}/hook/stop`,
+          {
+            method: 'POST',
+            headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled }),
+          }
+        );
+        if (resp.ok) {
+          btn.classList.toggle('active', enabled);
+        }
+      } catch {}
     });
   });
 }
@@ -478,6 +572,7 @@ async function deleteProject(name) {
 
     // If this was the active project, disconnect
     if (activeProject && activeProject.name === name) {
+      ForegroundService.stop().catch(() => {});
       if (ws) { ws.close(1000); ws = null; }
       activeProject = null;
       sessionName.textContent = '未连接';
@@ -573,6 +668,7 @@ async function createProject() {
 // ---- Connection ----
 async function startProject(project) {
   if (ws) {
+    ForegroundService.stop();
     ws.close(1000);
     ws = null;
   }
@@ -633,6 +729,13 @@ function connectWS(sessionId) {
     setStatus('online');
     scrollbackBuf = '';
     saveRecentProject(sessionId);
+    ForegroundService.start({
+      title: `Claude: ${sessionId}`,
+      daemonUrl: baseUrl(),
+      token: settings.pass,
+      projectName: sessionId,
+      pollInterval: settings.notifyPollInterval,
+    }).catch(() => {});
     if (term) {
       term.clear();
       term.focus();
@@ -649,6 +752,9 @@ function connectWS(sessionId) {
         term.write(raw);
       } else if (typeof evt.data === 'string') {
         raw = evt.data;
+        // Intercept notification messages from daemon — suppress from terminal.
+        // Actual notifications are delivered by ForegroundService polling (Java side).
+        if (raw.startsWith('CC_NOTIFY:')) return;
         term.write(raw);
       }
       if (raw) {
@@ -672,6 +778,7 @@ function connectWS(sessionId) {
     setStatus('offline');
     const msg = evt.code === 1006 ? '连接中断' : `断开 (${evt.code})`;
     showStatus(msg, true);
+    // Keep ForegroundService alive — it polls for notifications in background
     scheduleReconnect(sessionId);
   };
 
@@ -962,6 +1069,23 @@ function showStatus(text, showRetry) {
 
 function hideStatus() {
   statusOverlay.classList.add('hidden');
+}
+
+// ---- Notification ----
+async function handleNotify(event) {
+  try {
+    await LocalNotifications.schedule({
+      notifications: [{
+        id: Date.now(),
+        title: 'Claude 完成回复',
+        body: activeProject ? `项目: ${activeProject.name}` : '点击查看',
+        channelId: 'claude-tasks',
+        smallIcon: 'ic_stat_icon_config_sample',
+        autoCancel: true,
+        extra: { project: activeProject ? activeProject.name : '' },
+      }],
+    });
+  } catch {}
 }
 
 // ---- Modal ----

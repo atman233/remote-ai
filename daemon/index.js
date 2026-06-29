@@ -14,8 +14,19 @@ const TOKEN = process.env.TOKEN || '';
 const app = express();
 expressWs(app);
 
+// Track active WebSocket connections per session
+const sessions = new Map(); // sessionId -> Set<WebSocket>
+
+// Pending notifications for polling clients (survives WebSocket disconnect)
+const pendingNotifs = new Map(); // projectName -> [{id, event, timestamp}]
+let notifIdCounter = 0;
+
 // ---- Auth Middleware ----
 function authCheck(req, res, next) {
+  // Allow localhost without auth (for hook scripts running on same machine)
+  const ip = req.ip || req.socket?.remoteAddress || '';
+  if (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1') return next();
+
   if (!TOKEN) return next(); // No token configured, skip auth
 
   // Check query param (for WebSocket which can't set headers)
@@ -239,6 +250,135 @@ app.get('/api/sessions/:id/history', (req, res) => {
   }
 });
 
+// ---- Notification endpoint (called by Claude hooks) ----
+
+app.post('/api/notify', (req, res) => {
+  const { project, event } = req.body || {};
+  if (!project) {
+    return res.status(400).json({ error: 'missing project' });
+  }
+
+  // Store for polling clients
+  const entry = {
+    id: ++notifIdCounter,
+    event: event || 'stop',
+    timestamp: Date.now(),
+  };
+  if (!pendingNotifs.has(project)) pendingNotifs.set(project, []);
+  pendingNotifs.get(project).push(entry);
+  // Keep only last 100
+  if (pendingNotifs.get(project).length > 100) {
+    pendingNotifs.get(project).shift();
+  }
+
+  // Fast path: broadcast via WebSocket to currently connected clients
+  const conns = sessions.get(project);
+  if (conns && conns.size > 0) {
+    const msg = 'CC_NOTIFY:' + JSON.stringify({ type: 'notify', event: event || 'stop', id: entry.id });
+    conns.forEach((client) => {
+      try { client.send(msg); } catch {}
+    });
+    log(`Notify broadcast to ${project}: ${conns.size} client(s)`);
+  }
+
+  res.json({ ok: true, delivered: conns ? conns.size : 0, id: entry.id });
+});
+
+// ---- Notification polling endpoint (for background delivery) ----
+
+app.get('/api/projects/:name/notifications', (req, res) => {
+  const { name } = req.params;
+  const since = parseInt(req.query.since) || 0;
+
+  const all = pendingNotifs.get(name) || [];
+  const items = all.filter((n) => n.id > since);
+
+  log(`Poll ${name} since=${since} → ${items.length} items (total ${all.length})`);
+
+  res.json({
+    notifications: items,
+    latestId: items.length > 0 ? items[items.length - 1].id : since,
+    serverCounter: notifIdCounter,
+  });
+});
+
+// ---- Stop Hook enable/disable ----
+
+app.post('/api/projects/:name/hook/stop', (req, res) => {
+  const { name } = req.params;
+  const { enabled } = req.body || {};
+
+  if (typeof enabled !== 'boolean') {
+    return res.status(400).json({ error: 'missing enabled (boolean)' });
+  }
+
+  const project = getProject(name);
+  if (!project) {
+    return res.status(404).json({ error: '项目不存在: ' + name });
+  }
+
+  const hookScript = path.join(__dirname, 'hooks', 'stop-notify.sh');
+  const settingsPath = path.join(project.path, '.claude', 'settings.json');
+
+  let settings = {};
+  try {
+    if (fs.existsSync(settingsPath)) {
+      settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+    }
+  } catch {
+    // Corrupt file, start fresh
+  }
+
+  if (!settings.hooks) settings.hooks = {};
+
+  const isStopNotify = (h) =>
+    h.hooks && h.hooks.some((hh) => hh.command && hh.command.includes('stop-notify.sh'));
+
+  if (enabled) {
+    settings.hooks.Stop = (settings.hooks.Stop || []).filter((h) => !isStopNotify(h));
+    settings.hooks.Stop.push({
+      matcher: '',
+      hooks: [
+        {
+          type: 'command',
+          command: `bash ${hookScript} ${name}`,
+        },
+      ],
+    });
+  } else {
+    if (settings.hooks.Stop) {
+      settings.hooks.Stop = settings.hooks.Stop.filter((h) => !isStopNotify(h));
+      if (settings.hooks.Stop.length === 0) delete settings.hooks.Stop;
+    }
+    if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    const tmpPath = settingsPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(settings, null, 2), 'utf-8');
+    fs.renameSync(tmpPath, settingsPath);
+    log(GREEN(`Stop hook ${enabled ? 'enabled' : 'disabled'} for ${name}`));
+
+    // WSL-mounted drives (like /mnt/e/) don't support fs.watch,
+    // so Claude won't auto-detect .claude/settings.json changes.
+    // Interrupt any running tool then /clear to reload all config.
+    if (enabled && sessionExists(name)) {
+      try {
+        execSync(
+          `tmux send-keys -t '${name}' C-c; sleep 0.5; tmux send-keys -t '${name}' '/clear' Enter`,
+          { timeout: 5000 }
+        );
+      } catch {}
+    }
+
+    res.json({ ok: true, enabled });
+  } catch (e) {
+    log(RED(`Failed to write hook config: ${e.message}`));
+    res.status(500).json({ error: '写入Hook配置失败: ' + e.message });
+  }
+});
+
 // ---- WebSocket ----
 
 app.ws('/api/sessions/:id/pty', (ws, req) => {
@@ -251,6 +391,10 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
     ws.close();
     return;
   }
+
+  // Track connection
+  if (!sessions.has(sessionId)) sessions.set(sessionId, new Set());
+  sessions.get(sessionId).add(ws);
 
   const term = pty.spawn('tmux', ['attach', '-t', sessionId], {
     name: 'xterm-256color',
@@ -314,14 +458,25 @@ app.ws('/api/sessions/:id/pty', (ws, req) => {
   ws.on('message', handleMessage);
   ws.on('close', () => {
     log(YELLOW(`WS disconnect: ${sessionId}`));
+    const conns = sessions.get(sessionId);
+    if (conns) { conns.delete(ws); if (conns.size === 0) sessions.delete(sessionId); }
     term.kill();
   });
-  ws.on('error', () => term.kill());
+  ws.on('error', () => {
+    const conns = sessions.get(sessionId);
+    if (conns) { conns.delete(ws); if (conns.size === 0) sessions.delete(sessionId); }
+    term.kill();
+  });
 });
 
 // ---- Start ----
 
 app.listen(PORT, HOST, () => {
+  // Write port to file so hook scripts can find it
+  try {
+    const portFile = path.join(require('os').tmpdir(), 'cc-daemon-port');
+    fs.writeFileSync(portFile, String(PORT), 'utf-8');
+  } catch {}
   log(CYAN(`Daemon listening on ${HOST}:${PORT}`));
   const projects = listProjects();
   log(`Found ${projects.length} project(s)`);
