@@ -45,7 +45,10 @@ let historySheetError = null;
 let historyCloseBtn = null;
 let updateDownloadUrl = null;
 let updateListenersAdded = false;
+let cursorBar = null;
+let cursorBarTimer = null;
 const RECENT_KEY = 'recent_projects';
+const CURSOR_BAR_TIMEOUT = 3000;
 
 // ---- DOM refs ----
 const $ = (id) => document.getElementById(id);
@@ -802,6 +805,28 @@ function reconnect() {
   }
 }
 
+// ---- Cursor Control Helpers ----
+
+function sendKey(data) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(data);
+  }
+}
+
+function showCursorBar() {
+  if (!cursorBar) return;
+  cursorBar.classList.add('visible');
+  if (cursorBarTimer) clearTimeout(cursorBarTimer);
+  cursorBarTimer = setTimeout(() => {
+    cursorBar.classList.remove('visible');
+  }, CURSOR_BAR_TIMEOUT);
+}
+
+function hideCursorBar() {
+  if (!cursorBar) return;
+  cursorBar.classList.remove('visible');
+}
+
 // ---- Terminal ----
 function initTerminal() {
   term = new Terminal({
@@ -858,6 +883,64 @@ function initTerminal() {
   });
 
   initHistoryButton();
+  initCursorBar();
+  initSwipeGestures();
+}
+
+function initCursorBar() {
+  cursorBar = document.createElement('div');
+  cursorBar.id = 'cursor-bar';
+  cursorBar.innerHTML = `
+    <button class="home-btn" title="行首">&#x21A4;</button>
+    <button class="left-btn" title="左移">&#x2190;</button>
+    <button class="right-btn" title="右移">&#x2192;</button>
+    <button class="end-btn" title="行尾">&#x21A5;</button>
+  `;
+  cursorBar.querySelector('.left-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    sendKey('\x1b[D');
+    showCursorBar();
+  });
+  cursorBar.querySelector('.right-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    sendKey('\x1b[C');
+    showCursorBar();
+  });
+  cursorBar.querySelector('.home-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    sendKey('\x01');
+    showCursorBar();
+  });
+  cursorBar.querySelector('.end-btn').addEventListener('click', (e) => {
+    e.stopPropagation();
+    sendKey('\x05');
+    showCursorBar();
+  });
+  document.body.appendChild(cursorBar);
+}
+
+function initSwipeGestures() {
+  let touchStartX = 0;
+  let touchStartY = 0;
+
+  terminalContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }
+    showCursorBar();
+  }, { passive: true });
+
+  terminalContainer.addEventListener('touchend', (e) => {
+    const touch = e.changedTouches[0];
+    if (!touch) return;
+    const dx = touch.clientX - touchStartX;
+    const dy = touch.clientY - touchStartY;
+    if (Math.abs(dx) > 30 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      sendKey(dx > 0 ? '\x1b[C' : '\x1b[D');
+      showCursorBar();
+    }
+  });
 }
 
 // ---- History Button & Bottom Sheet ----

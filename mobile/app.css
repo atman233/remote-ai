@@ -403,7 +403,6 @@ body {
 #terminal-container {
   flex: 1;
   overflow: hidden;
-  padding: 4px;
   position: relative;
 }
 
@@ -412,6 +411,16 @@ body {
 .xterm { height: 100%; padding: 4px; }
 .xterm .xterm-viewport { scrollbar-width: none; }
 .xterm .xterm-viewport::-webkit-scrollbar { display: none; }
+
+/* Override xterm composition view to match terminal theme — higher specificity to beat runtime-injected xterm CSS */
+#terminal-container .xterm .composition-view {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  border-bottom: 1px solid #3c3c3c;
+  padding: 2px 8px;
+  font-family: inherit;
+  font-size: 13px;
+}
 
 /* ---- Status Overlay ---- */
 #status-overlay {
@@ -699,4 +708,56 @@ body {
 
 #history-sheet-error.hidden {
   display: none;
+}
+
+/* ---- Cursor Control Bar ---- */
+#cursor-bar {
+  position: fixed;
+  right: 12px;
+  bottom: 80px;
+  display: flex;
+  gap: 4px;
+  z-index: 9999;
+  background: rgba(45,45,45,0.92);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 24px;
+  padding: 6px 10px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+#cursor-bar.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+#cursor-bar button {
+  background: rgba(255,255,255,0.08);
+  border: none;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  color: #d4d4d4;
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  transition: background 0.15s;
+}
+
+#cursor-bar button:active {
+  background: rgba(255,255,255,0.2);
+}
+
+#cursor-bar button.home-btn,
+#cursor-bar button.end-btn {
+  width: 32px;
+  height: 32px;
+  font-size: 11px;
+  font-weight: 600;
 }
