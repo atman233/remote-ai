@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /mnt/e/02-easyai-new/daemon/hooks/stop-notify.sh easyai"
+          }
+        ]
+      }
+    ]
+  }
+}
